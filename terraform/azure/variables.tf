@@ -4,6 +4,12 @@ variable "prefix" {
   default     = "jenkins-cicd"
 }
 
+variable "environment" {
+  description = "Tipo de ambiente dos recursos"
+  type        = string
+  default     = "prod"
+}
+
 variable "location" {
   description = "Região do Azure onde os recursos serão criados"
   type        = string

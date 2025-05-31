@@ -23,3 +23,17 @@ output "container_group_name" {
   description = "Nome do Container Group (para Jenkins)"
   value       = azurerm_container_group.python_app.name
 }
+
+# Output adicional para debug
+output "build_info" {
+  description = "Informações do build"
+  value = {
+    image_url = "${var.acr_login_server}/python-app:latest"
+    build_dir = "${path.module}/temp_build"
+    files_created = [
+      "app.py",
+      "Dockerfile", 
+      "build.sh"
+    ]
+  }
+}

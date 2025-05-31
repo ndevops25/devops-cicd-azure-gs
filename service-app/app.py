@@ -7,7 +7,7 @@ import datetime
 app = Flask(__name__)
 
 # Porta configurável via variável de ambiente
-PORT = int(os.environ.get('PORT', 5000))
+PORT = int(os.environ.get('PORT', 5001))
 VERSION = os.environ.get('APP_VERSION', '1.24')
 
 # Template HTML para uma interface mais amigável
@@ -180,7 +180,7 @@ def health():
 @app.route('/info')
 def info():
     return jsonify({
-        'app_name': 'Jenkins CI/CD Azure and AWS Pipeline',
+        'app_name': 'GS DevSecOps CI/CD com Terraform, Azure, Jenkins Pipeline, SonarQube, Trivy, OWASP-ZAP, Prometheus e Grafana.',
         'version': VERSION,
         'environment': os.environ.get('ENVIRONMENT', 'development'),
         'port': PORT

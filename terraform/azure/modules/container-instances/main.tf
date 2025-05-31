@@ -10,7 +10,7 @@ resource "azurerm_container_group" "python_app" {
   
   depends_on = [null_resource.build_and_push_image]
   
-  # Container usando SUA imagem do ACR
+  # Container usando imagem do ACR
   container {
     name   = "python-app"
     image  = "${var.acr_login_server}/python-app:latest"

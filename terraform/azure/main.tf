@@ -59,8 +59,8 @@ module "container_registry" {
 }
 
 # Compute (VM para Jenkins)
-module "jenkins_vm" {
-  source                = "./modules/compute"
+module "jenkins_pipeline_vm" {
+  source                = "./modules/devsecops/pipeline/jenkins"
   resource_group_name   = module.resource_group.name
   location              = var.location
   prefix                = "${var.prefix}-jenkins"
@@ -80,8 +80,8 @@ module "jenkins_vm" {
 }
 
 # Compute (VM para SonarQube)
-module "sonarqube_vm" {
-  source                = "./modules/compute"
+module "sonarqube_qa_vm" {
+  source                = "./modules/devsecops/quality-assurance/sonarqube"
   resource_group_name   = module.resource_group.name
   location              = var.location
   prefix                = "${var.prefix}-sonarqube"
@@ -98,6 +98,77 @@ module "sonarqube_vm" {
     file("${path.module}/scripts/setup-sonarqube-docker.sh")
   ]))
   tags                  = var.tags
+}
+
+# Trivy Security Scanner
+module "trivy_security_scanner" {
+  source              = "./modules/devsecops/security-scanner/trivy"
+  resource_group_name = module.resource_group.name
+  location            = var.location
+  prefix              = var.prefix
+  
+  # Integração com ACR
+  acr_login_server    = module.container_registry.login_server
+  acr_admin_username  = module.container_registry.admin_username
+  acr_admin_password  = module.container_registry.admin_password
+  acr_dependency      = module.container_registry
+  
+  tags = merge(var.tags, {
+    Module      = "DevSecOps"
+    Component   = "Security-Scanner"
+    Tool        = "Trivy"
+    Environment = var.environment
+  })
+}
+
+# OWASP ZAP Proxy Security Testing
+module "owasp_zap_testing" {
+  source              = "./modules/devsecops/proxy-security/owasp-zap"
+  resource_group_name = module.resource_group.name
+  location            = var.location
+  prefix              = var.prefix
+  
+  # Integração com ACR
+  acr_login_server    = module.container_registry.login_server
+  acr_admin_username  = module.container_registry.admin_username
+  acr_admin_password  = module.container_registry.admin_password
+  acr_dependency      = module.container_registry
+  
+  tags = merge(var.tags, {
+    Module      = "DevSecOps"
+    Component   = "Quality-Assurance"
+    Tool        = "OWASP-ZAP"
+    Environment = var.environment
+  })
+}
+
+# # Grafana Monitoring Stack
+module "grafana_monitoring" {
+  source              = "./modules/devsecops/monitoring/prometheus-grafana"
+  resource_group_name = module.resource_group.name
+  location            = var.location
+  prefix              = var.prefix
+  
+  # Integração com ACR
+  acr_login_server    = module.container_registry.login_server
+  acr_admin_username  = module.container_registry.admin_username
+  acr_admin_password  = module.container_registry.admin_password
+  acr_dependency      = module.container_registry
+  
+  # Configurações específicas
+  grafana_admin_password = "GrafanaAdmin123!"  # Mude para uma senha segura
+  
+  # Integração com outros serviços
+  trivy_dashboard_ip = module.trivy_security_scanner.trivy_dashboard_ip
+  zap_dashboard_ip   = module.owasp_zap_testing.zap_dashboard_ip
+  jenkins_vm_ip      = module.jenkins_pipeline_vm.private_ip_address
+  
+  tags = merge(var.tags, {
+    Module      = "DevSecOps"
+    Component   = "Monitoring"
+    Tool        = "Grafana"
+    Environment = var.environment
+  })
 }
 
 # ACI com imagem do ACR
