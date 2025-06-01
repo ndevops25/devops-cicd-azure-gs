@@ -44,7 +44,12 @@ Este projeto implementa um pipeline completo de CI/CD usando Jenkins para uma ap
 -   **ALB**: Load Balancer para distribuição de tráfego
 
 -   Jenkins: <http://52.179.0.47:8080/>
+    - Login: admin
+    - Senha: admin
+
 -   SonarQube: <http://52.179.3.47:9000/>
+    - Login: thunderbolts
+    - Senha: Fiap123
 
 **🚀 Parte em desenvolvimento - DevSecOps completo:**
 --------------------------------------------
