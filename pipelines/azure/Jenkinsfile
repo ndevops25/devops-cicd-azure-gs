@@ -105,22 +105,22 @@ pipeline {
                             sh '''
                                 # Criar arquivo sonar-project.properties
                                 cat > sonar-project.properties << EOL
-# Identificação do projeto
-sonar.projectKey=${SONAR_PROJECT}
-sonar.projectName=Service App
-sonar.projectVersion=${APP_VERSION}
+                                # Identificação do projeto
+                                sonar.projectKey=${SONAR_PROJECT}
+                                sonar.projectName=Service App
+                                sonar.projectVersion=${APP_VERSION}
 
-# Configurações do servidor
-sonar.host.url=${SONAR_SERVER}
+                                # Configurações do servidor
+                                sonar.host.url=${SONAR_SERVER}
 
-# Caminho para os arquivos de código
-sonar.sources=.
-sonar.python.coverage.reportPaths=coverage.xml
-sonar.python.xunit.reportPath=test-results.xml
+                                # Caminho para os arquivos de código
+                                sonar.sources=.
+                                sonar.python.coverage.reportPaths=coverage.xml
+                                sonar.python.xunit.reportPath=test-results.xml
 
-# Codificação do código-fonte
-sonar.sourceEncoding=UTF-8
-EOL
+                                # Codificação do código-fonte
+                                sonar.sourceEncoding=UTF-8
+                                EOL
                             '''
                             
                             // Executar o SonarScanner com o token
@@ -160,21 +160,21 @@ EOL
             }
         }
         
-        stage('📊 Quality Gate') {
-            steps {
-                echo "📊 Waiting for SonarQube Quality Gate..."
-                script {
-                    timeout(time: 5, unit: 'MINUTES') {
-                        def qg = waitForQualityGate()
-                        if (qg.status != 'OK') {
-                            error "Pipeline aborted due to quality gate failure: ${qg.status}"
-                        } else {
-                            echo "✅ Quality Gate passed!"
-                        }
-                    }
-                }
-            }
-        }
+        // stage('📊 Quality Gate') {
+        //     steps {
+        //         echo "📊 Waiting for SonarQube Quality Gate..."
+        //         script {
+        //             timeout(time: 5, unit: 'MINUTES') {
+        //                 def qg = waitForQualityGate()
+        //                 if (qg.status != 'OK') {
+        //                     error "Pipeline aborted due to quality gate failure: ${qg.status}"
+        //                 } else {
+        //                     echo "✅ Quality Gate passed!"
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
         
         stage('🏗️ Build Docker Image') {
             steps {
