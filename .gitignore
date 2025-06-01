@@ -39,3 +39,5 @@ terraform.rc
 .terraform.lock.hcl
 
 ssh-keys
+
+.DS_Store
