@@ -258,30 +258,30 @@ output "trivy_dashboard_url" {
 # OUTPUTS - GRAFANA MONITORING STACK
 # ========================================
 
-output "grafana_dashboard_fqdn" {
-  description = "FQDN do dashboard Grafana"
-  value       = module.grafana_monitoring.grafana_dashboard_fqdn
-}
+# output "grafana_dashboard_fqdn" {
+#   description = "FQDN do dashboard Grafana"
+#   value       = module.grafana_monitoring.grafana_dashboard_fqdn
+# }
 
-output "grafana_dashboard_ip" {
-  description = "IP público do dashboard Grafana"
-  value       = module.grafana_monitoring.grafana_dashboard_ip
-}
+# output "grafana_dashboard_ip" {
+#   description = "IP público do dashboard Grafana"
+#   value       = module.grafana_monitoring.grafana_dashboard_ip
+# }
 
-output "grafana_dashboard_url" {
-  description = "URL completa do dashboard Grafana"
-  value       = module.grafana_monitoring.grafana_dashboard_url
-}
+# output "grafana_dashboard_url" {
+#   description = "URL completa do dashboard Grafana"
+#   value       = module.grafana_monitoring.grafana_dashboard_url
+# }
 
-output "prometheus_url" {
-  description = "URL do Prometheus"
-  value       = module.grafana_monitoring.prometheus_url
-}
+# output "prometheus_url" {
+#   description = "URL do Prometheus"
+#   value       = module.grafana_monitoring.prometheus_url
+# }
 
-output "monitoring_container_group_id" {
-  description = "ID do Container Group de monitoramento"
-  value       = module.grafana_monitoring.monitoring_container_group_id
-}
+# output "monitoring_container_group_id" {
+#   description = "ID do Container Group de monitoramento"
+#   value       = module.grafana_monitoring.monitoring_container_group_id
+# }
 
 # ========================================
 # OUTPUTS - OWASP ZAP SECURITY TESTING
@@ -327,10 +327,10 @@ output "devsecops_dashboard_info" {
       zap_api_url         = module.owasp_zap_testing.zap_api_url
     }
     
-    monitoring = {
-      grafana_url    = module.grafana_monitoring.grafana_dashboard_url
-      prometheus_url = module.grafana_monitoring.prometheus_url
-    }
+    # monitoring = {
+    #   grafana_url    = module.grafana_monitoring.grafana_dashboard_url
+    #   prometheus_url = module.grafana_monitoring.prometheus_url
+    # }
     
     quality = {
       sonarqube_url = "http://${module.sonarqube_qa_vm.public_ip_address}:9000"
@@ -343,7 +343,7 @@ output "devsecops_dashboard_info" {
     jenkins_integration = {
       trivy_environment_variable = "TRIVY_SERVER_URL=${module.trivy_security_scanner.jenkins_integration.trivy_server_url}"
       zap_environment_variable   = "ZAP_API_URL=${module.owasp_zap_testing.jenkins_integration.zap_api_url}"
-      grafana_environment_variable = "GRAFANA_URL=${module.grafana_monitoring.grafana_dashboard_url}"
+      # grafana_environment_variable = "GRAFANA_URL=${module.grafana_monitoring.grafana_dashboard_url}"
       pipeline_usage            = "Use o endpoint /scan para integrar com pipelines Jenkins"
       health_check              = module.trivy_security_scanner.jenkins_integration.health_check_url
     }

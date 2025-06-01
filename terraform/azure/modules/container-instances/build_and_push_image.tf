@@ -74,6 +74,7 @@ EOF
 }
 
 # Build e Push da imagem para o ACR
+# Build melhorado para Container Instances com tratamento de erros
 resource "null_resource" "build_and_push_image" {
   depends_on = [
     var.acr_dependency,
@@ -85,60 +86,151 @@ resource "null_resource" "build_and_push_image" {
     command = <<-EOF
       set -e
       
-      echo "🔍 Verificando pré-requisitos..."
+      echo "🐍 Building Python Application..."
       
-      # Verificar se Docker está rodando
-      if ! docker info > /dev/null 2>&1; then
-          echo "❌ Docker não está rodando ou não está instalado"
-          echo "📝 Por favor, inicie o Docker Desktop e tente novamente"
-          exit 1
-      fi
+      # Função para verificar pré-requisitos
+      check_prerequisites() {
+          echo "🔍 Verificando pré-requisitos..."
+          
+          # Verificar se Docker está rodando
+          if ! docker info > /dev/null 2>&1; then
+              echo "❌ Docker não está rodando ou não está instalado"
+              echo "💡 Inicie o Docker Desktop e tente novamente"
+              exit 1
+          fi
+          
+          # Verificar se Azure CLI está instalado
+          if ! command -v az &> /dev/null; then
+              echo "❌ Azure CLI não está instalado"
+              echo "💡 Instale o Azure CLI: https://docs.microsoft.com/cli/azure/install-azure-cli"
+              exit 1
+          fi
+          
+          # Verificar se está logado no Azure
+          if ! az account show > /dev/null 2>&1; then
+              echo "❌ Não logado no Azure CLI"
+              echo "💡 Execute: az login"
+              exit 1
+          fi
+          
+          echo "✅ Pré-requisitos OK"
+      }
       
-      # Verificar se Azure CLI está instalado
-      if ! command -v az &> /dev/null; then
-          echo "❌ Azure CLI não está instalado"
-          exit 1
-      fi
+      # Verificar pré-requisitos
+      check_prerequisites
       
-      echo "✅ Pré-requisitos OK"
-      
-      # Criar diretório se não existir e navegar
-      mkdir -p modules/container-instances/temp_build
-      cd modules/container-instances/temp_build
+      # Criar e navegar para diretório
+      TARGET_DIR="modules/container-instances/temp_build"
+      echo "📁 Criando/navegando para: $TARGET_DIR"
+      mkdir -p "$TARGET_DIR"
+      cd "$TARGET_DIR"
       
       echo "📋 Arquivos no diretório:"
       ls -la
       
-      echo "🔑 Fazendo login no ACR com Azure CLI..."
-      az acr login --name ${replace(var.acr_login_server, ".azurecr.io", "")}
+      # Verificar se os arquivos essenciais existem
+      if [ ! -f "app.py" ]; then
+          echo "❌ app.py não encontrado"
+          exit 1
+      fi
       
+      if [ ! -f "Dockerfile" ]; then
+          echo "❌ Dockerfile não encontrado"
+          exit 1
+      fi
+      
+      # Verificar conteúdo dos arquivos
+      echo "📄 Verificando conteúdo do app.py:"
+      head -5 app.py
+      
+      echo "📄 Verificando conteúdo do Dockerfile:"
+      head -5 Dockerfile
+      
+      # Login no ACR com retry
+      echo "🔑 Fazendo login no ACR..."
+      ACR_NAME="${replace(var.acr_login_server, ".azurecr.io", "")}"
+      
+      for i in {1..3}; do
+          if az acr login --name "$ACR_NAME"; then
+              echo "✅ Login no ACR realizado com sucesso"
+              break
+          else
+              echo "⚠️ Tentativa $i de login falhou, tentando novamente..."
+              sleep 5
+              if [ $i -eq 3 ]; then
+                  echo "❌ Falha no login após 3 tentativas"
+                  exit 1
+              fi
+          fi
+      done
+      
+      # Build da imagem com mais detalhes
       echo "🔨 Building imagem Docker..."
-      docker build -t python-app:local .
+      if ! docker build -t python-app:local . --progress=plain; then
+          echo "❌ Falha no build da imagem Docker"
+          echo "🔍 Verifique os logs acima para detalhes do erro"
+          exit 1
+      fi
+      
+      # Verificar se a imagem foi criada
+      if ! docker images python-app:local --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep python-app; then
+          echo "❌ Imagem não foi criada corretamente"
+          exit 1
+      fi
       
       echo "🏷️ Tagging imagem para ACR..."
       docker tag python-app:local ${var.acr_login_server}/python-app:latest
       
+      # Push com retry
       echo "📤 Fazendo push para ACR..."
-      docker push ${var.acr_login_server}/python-app:latest
+      for i in {1..3}; do
+          if docker push ${var.acr_login_server}/python-app:latest; then
+              echo "✅ Push realizado com sucesso"
+              break
+          else
+              echo "⚠️ Tentativa $i de push falhou, tentando novamente..."
+              sleep 10
+              if [ $i -eq 3 ]; then
+                  echo "❌ Falha no push após 3 tentativas"
+                  exit 1
+              fi
+          fi
+      done
       
+      # Verificar se a imagem foi enviada
       echo "🔍 Verificando imagem no ACR..."
-      az acr repository show-tags --name ${replace(var.acr_login_server, ".azurecr.io", "")} --repository python-app --output table || echo "⚠️ Não foi possível verificar, mas push concluído"
+      if az acr repository show-tags --name "$ACR_NAME" --repository python-app --output table; then
+          echo "✅ Imagem verificada no ACR"
+      else
+          echo "⚠️ Não foi possível verificar a imagem, mas push foi concluído"
+      fi
       
-      echo "🧹 Limpando imagem local..."
-      docker rmi python-app:local ${var.acr_login_server}/python-app:latest || true
+      # Limpar apenas se tudo deu certo
+      echo "🧹 Limpando imagens locais..."
+      docker rmi python-app:local ${var.acr_login_server}/python-app:latest 2>/dev/null || echo "⚠️ Algumas imagens já foram removidas"
       
       echo "✅ Build e push concluídos com sucesso!"
       echo "🎯 Imagem disponível em: ${var.acr_login_server}/python-app:latest"
+      
+      # Mostrar estatísticas finais
+      echo "📊 Repositórios no ACR:"
+      az acr repository list --name "$ACR_NAME" --output table || echo "⚠️ Não foi possível listar repositórios"
     EOF
     
     working_dir = "."
   }
 
-  # Triggers APENAS para mudanças reais nos arquivos
+  # Triggers otimizados (sem timestamp para evitar rebuilds desnecessários)
   triggers = {
     acr_server     = var.acr_login_server
     python_app_md5 = local_file.python_app.content_md5
     dockerfile_md5 = local_file.dockerfile.content_md5
-    # timestamp removido! ← Esta era a causa do problema
+    # Removido timestamp para evitar rebuilds constantes
   }
+}
+
+# Adicionar um data source para verificar se o ACR existe
+data "azurerm_container_registry" "acr_check" {
+  name                = replace(var.acr_login_server, ".azurecr.io", "")
+  resource_group_name = var.resource_group_name
 }
