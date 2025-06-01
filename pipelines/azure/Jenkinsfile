@@ -2,7 +2,9 @@ pipeline {
     agent any
     
     environment {
-        // Configurações do Azure - pegue das credenciais do Jenkins        
+        // Configurações do Azure - pegue das credenciais do Jenkins
+        AZURE_SUBSCRIPTION = '7ffb36a8-96d2-4da6-ad22-e2751a217c90' // Sua subscription ID
+        
         // Configurações do ACR
         ACR_NAME = 'jenkinscidacr'
         ACR_LOGIN_SERVER = "${ACR_NAME}.azurecr.io"
@@ -31,7 +33,7 @@ pipeline {
     stages {
         stage('🔍 Verify Azure Access') {
             steps {
-                echo "🔍 Verificando acesso ao Azure..."
+                echo "🔍 Verificando acesso ao Azure e credenciais..."
                 withCredentials([
                     string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
                     string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
@@ -40,13 +42,34 @@ pipeline {
                 ]) {
                     script {
                         sh '''
-                            echo "Testing Azure CLI access..."
-                            docker run --rm \
-                              -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
-                              -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
-                              -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
-                              mcr.microsoft.com/azure-cli:latest \
-                              sh -c "az login --service-principal -u $AZURE_CLIENT_ID -p $AZURE_CLIENT_SECRET --tenant $AZURE_TENANT_ID && az account show"
+                            echo "=== DEBUGGING AZURE CREDENTIALS ==="
+                            echo "Azure Tenant ID: ${AZURE_TENANT_ID:0:8}***"
+                            echo "Azure Client ID: ${AZURE_CLIENT_ID:0:8}***"
+                            echo "Azure Client Secret: ${AZURE_CLIENT_SECRET:0:4}***"
+                            echo "Azure Subscription: ${AZURE_SUBSCRIPTION_ID:0:8}***"
+                            echo ""
+                            
+                            echo "=== TESTING AZURE CLI ACCESS ==="
+                            # Instalar Azure CLI se não estiver disponível
+                            if ! command -v az &> /dev/null; then
+                                echo "Installing Azure CLI..."
+                                curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+                            fi
+                            
+                            echo "Testing Azure CLI login..."
+                            az login --service-principal \
+                              --username "$AZURE_CLIENT_ID" \
+                              --password "$AZURE_CLIENT_SECRET" \
+                              --tenant "$AZURE_TENANT_ID" \
+                              --output table
+                            
+                            echo "Setting subscription..."
+                            az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+                            
+                            echo "Verifying account access..."
+                            az account show --output table
+                            
+                            echo "✅ Azure CLI access verified!"
                         '''
                     }
                 }
@@ -61,9 +84,9 @@ pipeline {
                     sh '''
                         echo "Current directory structure:"
                         ls -la
-                        if [ -d "service-app" ]; then
+                        if [ -d "../../service-app" ]; then
                             echo "service-app directory found"
-                            ls -la service-app/
+                            ls -la ../../service-app/
                         else
                             echo "service-app directory not found, checking for Dockerfile in root"
                             if [ -f "Dockerfile" ]; then
@@ -78,30 +101,90 @@ pipeline {
             }
         }
         
-        stage('🔍 Code Quality Analysis - SonarQube') {
+        stage('Code Analysis') {
             steps {
-                echo "🔍 Running SonarQube analysis..."
-                script {
-                    withSonarQubeEnv('SonarQube') { // Nome da configuração do SonarQube no Jenkins
-                        sh '''
-                            # Instalar sonar-scanner se não estiver disponível
-                            if ! command -v sonar-scanner &> /dev/null; then
-                                echo "Installing SonarQube Scanner..."
-                                wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856-linux.zip
-                                unzip -q sonar-scanner-cli-4.8.0.2856-linux.zip
-                                export PATH=$PATH:$(pwd)/sonar-scanner-4.8.0.2856-linux/bin
-                            fi
+                echo "Executando análise de código com SonarQube..."
+                withSonarQubeEnv('SonarQube') {  // Isso configura as variáveis de ambiente do SonarQube
+                    dir('sample-app') {
+                        script {
+                            // Primeiro, vamos fazer download e descompactar o SonarScanner no workspace
+                            sh '''
+                            # Verificar e criar diretório para o scanner
+                            mkdir -p ${WORKSPACE}/sonar-scanner
                             
-                            # Executar análise SonarQube
-                            sonar-scanner \
-                              -Dsonar.projectKey=${SONAR_PROJECT} \
-                              -Dsonar.sources=. \
-                              -Dsonar.host.url=${SONAR_SERVER} \
-                              -Dsonar.login=${SONAR_TOKEN} \
-                              -Dsonar.projectName="Service App" \
-                              -Dsonar.projectVersion=${BUILD_NUMBER} \
-                              -Dsonar.exclusions="**/node_modules/**,**/target/**,**/*.zip,**/*.jar"
-                        '''
+                            # Baixar o SonarScanner
+                            echo "Baixando SonarScanner..."
+                            curl -L -o ${WORKSPACE}/sonar-scanner-cli.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856-linux.zip
+                            
+                            # Descompactar
+                            unzip -q -o ${WORKSPACE}/sonar-scanner-cli.zip -d ${WORKSPACE}/sonar-scanner
+                            
+                            # Tornar o binário executável
+                            chmod +x ${WORKSPACE}/sonar-scanner/sonar-scanner-*/bin/sonar-scanner
+                            
+                            # Verificar a instalação
+                            ls -la ${WORKSPACE}/sonar-scanner/sonar-scanner-*/bin/
+                            '''
+                            
+                            // Criar o arquivo de propriedades do SonarQube
+                            sh '''
+                            # Criar arquivo sonar-project.properties
+                            cat > sonar-project.properties << EOL
+                            # Identificação do projeto
+                            sonar.projectKey=sample-app
+                            sonar.projectName=Sample App
+                            sonar.projectVersion=${APP_VERSION}
+
+                            # Configurações do servidor
+                            sonar.host.url=http://52.179.3.47:9000
+
+                            # Caminho para os arquivos de código
+                            sonar.sources=.
+                            sonar.python.coverage.reportPaths=coverage.xml
+                            sonar.python.xunit.reportPath=test-results.xml
+
+                            # Codificação do código-fonte
+                            sonar.sourceEncoding=UTF-8
+                            EOL
+                            '''
+                            
+                            // Executar o SonarScanner com o token
+                            withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+                                sh '''
+                                # Exibir o diretório atual e listar arquivos
+                                pwd
+                                ls -la
+                                
+                                # Exibir o arquivo de propriedades
+                                echo "Conteúdo do arquivo sonar-project.properties:"
+                                cat sonar-project.properties
+                                
+                                # Executar o SonarScanner
+                                echo "Executando SonarScanner..."
+                                ${WORKSPACE}/sonar-scanner/sonar-scanner-*/bin/sonar-scanner \
+                                -Dsonar.login=${SONAR_TOKEN} \
+                                -Dsonar.projectBaseDir=$(pwd) \
+                                -Dsonar.verbose=true
+                                
+                                # Verificar se o relatório foi gerado
+                                echo "Verificando se o arquivo report-task.txt foi gerado:"
+                                find . -name report-task.txt
+                                find .scannerwork -name "report-task.txt" || echo "Arquivo não encontrado em .scannerwork"
+                                
+                                # Se encontrado, copiar para o diretório raiz do workspace
+                                if [ -f .scannerwork/report-task.txt ]; then
+                                    echo "Copiando report-task.txt para o diretório raiz..."
+                                    cp .scannerwork/report-task.txt .
+                                fi
+                                
+                                # Mostrar o conteúdo do relatório se existir
+                                if [ -f report-task.txt ]; then
+                                    echo "Conteúdo do arquivo report-task.txt:"
+                                    cat report-task.txt
+                                fi
+                                '''
+                            }
+                        }
                     }
                 }
             }
@@ -131,7 +214,7 @@ pipeline {
                     def buildDir = fileExists('../../service-app/Dockerfile') ? 'service-app' : '.'
                     
                     if (buildDir == 'service-app') {
-                        dir('service-app') {
+                        dir('../../service-app') {
                             sh """
                                 echo "Building image from service-app directory: ${APP_NAME}:${IMAGE_TAG}"
                                 docker build -t ${APP_NAME}:${IMAGE_TAG} .
@@ -162,15 +245,20 @@ pipeline {
                     string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
                 ]) {
                     sh '''
-                        echo "Logging into Azure CLI..."
-                        docker run --rm \
-                          -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
-                          -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
-                          -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
-                          mcr.microsoft.com/azure-cli:latest \
-                          az login --service-principal -u $AZURE_CLIENT_ID -p $AZURE_CLIENT_SECRET --tenant $AZURE_TENANT_ID
+                        echo "=== ACR LOGIN PROCESS ==="
                         
-                        echo "Logging into ACR..."
+                        # Re-login to Azure CLI (using the same session)
+                        echo "Re-authenticating with Azure CLI..."
+                        az login --service-principal \
+                          --username "$AZURE_CLIENT_ID" \
+                          --password "$AZURE_CLIENT_SECRET" \
+                          --tenant "$AZURE_TENANT_ID" \
+                          --output none
+                        
+                        echo "Logging into ACR using Azure CLI..."
+                        az acr login --name $ACR_NAME
+                        
+                        echo "Alternative: Direct Docker login to ACR..."
                         echo $AZURE_CLIENT_SECRET | docker login $ACR_LOGIN_SERVER -u $AZURE_CLIENT_ID --password-stdin
                         
                         echo "✅ ACR login successful!"
@@ -203,11 +291,19 @@ pipeline {
                     string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
                 ]) {
                     script {
-                        // Primeiro, fazer login no Azure
+                        // Usar a mesma sessão do Azure CLI
                         sh '''
-                            echo "Logging into Azure for deployment..."
-                            az login --service-principal -u $AZURE_CLIENT_ID -p $AZURE_CLIENT_SECRET --tenant $AZURE_TENANT_ID
-                            az account set --subscription $AZURE_SUBSCRIPTION
+                            echo "=== ACI DEPLOYMENT PROCESS ==="
+                            
+                            # Re-authenticate if needed
+                            echo "Ensuring Azure CLI authentication..."
+                            az login --service-principal \
+                              --username "$AZURE_CLIENT_ID" \
+                              --password "$AZURE_CLIENT_SECRET" \
+                              --tenant "$AZURE_TENANT_ID" \
+                              --output none
+                            
+                            az account set --subscription "$AZURE_SUBSCRIPTION"
                         '''
                         
                         try {
@@ -228,7 +324,8 @@ pipeline {
                                     --registry-password ${AZURE_CLIENT_SECRET} \
                                     --ip-address Public \
                                     --dns-name-label ${CONTAINER_GROUP} \
-                                    --environment-variables PYTHONUNBUFFERED=1 PORT=8000 ENV=production
+                                    --environment-variables PYTHONUNBUFFERED=1 PORT=8000 ENV=production \
+                                    --output table
                             """
                             
                             echo "✅ Container created successfully!"
@@ -245,6 +342,7 @@ pipeline {
                                     --name ${CONTAINER_GROUP} \
                                     --yes || true
                                 
+                                echo "Waiting 30 seconds for cleanup..."
                                 sleep 30
                                 
                                 echo "Creating new container..."
@@ -262,7 +360,8 @@ pipeline {
                                     --registry-password ${AZURE_CLIENT_SECRET} \
                                     --ip-address Public \
                                     --dns-name-label ${CONTAINER_GROUP} \
-                                    --environment-variables PYTHONUNBUFFERED=1 PORT=8000 ENV=production
+                                    --environment-variables PYTHONUNBUFFERED=1 PORT=8000 ENV=production \
+                                    --output table
                             """
                             
                             echo "🔄 Container recreated successfully!"
