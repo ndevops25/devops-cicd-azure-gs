@@ -176,439 +176,383 @@ pipeline {
         //     }
         // }
         
-        stage('🏗️ Build Docker Image') {
-            steps {
-                echo "🏗️ Building Docker image..."
-                script {
-                    // Verificar se deve buildar do diretório service-app ou root
-                    def buildDir = fileExists('service-app/Dockerfile') ? 'service-app' : '.'
+        // stage('🏗️ Build Docker Image') {
+        //     steps {
+        //         echo "🏗️ Building Docker image..."
+        //         script {
+        //             // Verificar se deve buildar do diretório service-app ou root
+        //             def buildDir = fileExists('service-app/Dockerfile') ? 'service-app' : '.'
                     
-                    if (buildDir == 'service-app') {
-                        dir('service-app') {
-                            sh """
-                                echo "Building image from service-app directory: ${APP_NAME}:${IMAGE_TAG}"
-                                docker build -t ${APP_NAME}:${IMAGE_TAG} .
-                                docker tag ${APP_NAME}:${IMAGE_TAG} ${APP_NAME}:latest
-                                docker tag ${APP_NAME}:${IMAGE_TAG} ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}
-                                docker tag ${APP_NAME}:${IMAGE_TAG} ${ACR_LOGIN_SERVER}/${APP_NAME}:latest
-                            """
-                        }
-                    } else {
-                        sh """
-                            echo "Building image from root directory: ${APP_NAME}:${IMAGE_TAG}"
-                            docker build -t ${APP_NAME}:${IMAGE_TAG} .
-                            docker tag ${APP_NAME}:${IMAGE_TAG} ${APP_NAME}:latest
-                            docker tag ${APP_NAME}:${IMAGE_TAG} ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}
-                            docker tag ${APP_NAME}:${IMAGE_TAG} ${ACR_LOGIN_SERVER}/${APP_NAME}:latest
-                        """
-                    }
-                }
-            }
-        }
-
-        stage('📋 Check Resource Groups') {
-            steps {
-                echo "📋 Checking available Resource Groups..."
-                withCredentials([
-                    string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
-                    string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
-                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
-                ]) {
-                    sh '''
-                        echo "Logging into Azure CLI..."
-                        docker run --rm \
-                        -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                        -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                        -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                        mcr.microsoft.com/azure-cli:latest \
-                        az login --service-principal -u "${AZURE_CLIENT_ID}" -p "${AZURE_CLIENT_SECRET}" --tenant "${AZURE_TENANT_ID}"
-                        
-                        echo "Available Resource Groups in subscription:"
-                        docker run --rm \
-                        -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                        -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                        -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                        mcr.microsoft.com/azure-cli:latest \
-                        sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az group list --query '[].{Name:name, Location:location, ProvisioningState:properties.provisioningState}' -o table"
-                        
-                        echo "Checking if 'rg-jenkins-cicd' exists specifically..."
-                        RG_EXISTS=$(docker run --rm \
-                        -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                        -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                        -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                        mcr.microsoft.com/azure-cli:latest \
-                        sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az group list --query \"[?name==\\\`rg-jenkins-cicd\\\`].name\" -o tsv")
-                        
-                        if [ -z "$RG_EXISTS" ]; then
-                            echo "❌ Resource group 'rg-jenkins-cicd' NOT FOUND"
-                        else
-                            echo "✅ Resource group 'rg-jenkins-cicd' EXISTS"
-                        fi
-                    '''
-                }
-            }
-        }
-
-        stage('🏗️ Setup ACR') {
-            steps {
-                echo "🏗️ Setting up Azure Container Registry..."
-                withCredentials([
-                    string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
-                    string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
-                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
-                ]) {
-                    sh '''
-                        echo "Logging into Azure CLI..."
-                        docker run --rm \
-                        -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                        -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                        -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                        mcr.microsoft.com/azure-cli:latest \
-                        az login --service-principal -u "${AZURE_CLIENT_ID}" -p "${AZURE_CLIENT_SECRET}" --tenant "${AZURE_TENANT_ID}"
-                        
-                        echo "Checking if ACR 'jenkinscicrdacr' exists..."
-                        ACR_EXISTS=$(docker run --rm \
-                        -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                        -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                        -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                        mcr.microsoft.com/azure-cli:latest \
-                        sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr list --query \"[?name==\\\`jenkinscicrdacr\\\`].name\" -o tsv")
-                        
-                        if [ -z "$ACR_EXISTS" ]; then
-                            echo "🔨 ACR 'jenkinscicrdacr' not found. Creating it..."
-                            
-                            # Verificar se resource group existe
-                            echo "Checking if resource group 'rg-jenkins-cicd' exists..."
-                            RG_EXISTS=$(docker run --rm \
-                            -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                            -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                            -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                            mcr.microsoft.com/azure-cli:latest \
-                            sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az group list --query \"[?name==\\\`rg-jenkins-cicd\\\`].name\" -o tsv")
-                            
-                            if [ -z "$RG_EXISTS" ]; then
-                                echo "🔨 Resource group 'rg-jenkins-cicd' not found. Creating it..."
-                                docker run --rm \
-                                -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                                -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                                -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                                mcr.microsoft.com/azure-cli:latest \
-                                sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az group create --name rg-jenkins-cicd --location brazilsouth --output none"
-                                echo "✅ Resource group 'rg-jenkins-cicd' created successfully!"
-                            else
-                                echo "✅ Resource group 'rg-jenkins-cicd' already exists. Skipping creation."
-                            fi
-                            
-                            # Criar ACR
-                            echo "Creating ACR 'jenkinscicrdacr'..."
-                            docker run --rm \
-                            -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                            -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                            -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                            mcr.microsoft.com/azure-cli:latest \
-                            sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr create --resource-group rg-jenkins-cicd --name jenkinscicrdacr --sku Basic --admin-enabled true --output none"
-                            
-                            echo "✅ ACR 'jenkinscicrdacr' created successfully!"
-                        else
-                            echo "✅ ACR 'jenkinscicrdacr' already exists. Skipping creation."
-                        fi
-                        
-                        # Verificar se admin está habilitado (necessário para login)
-                        echo "Ensuring admin user is enabled..."
-                        docker run --rm \
-                        -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                        -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                        -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                        mcr.microsoft.com/azure-cli:latest \
-                        sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr update --name jenkinscicrdacr --admin-enabled true --output none"
-                        
-                        echo "📋 ACR setup completed!"
-                    '''
-                }
-            }
-        }
-
-        stage('🔐 Login to ACR') {
-            steps {
-                echo "🔐 Logging into Azure Container Registry..."
-                withCredentials([
-                    string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
-                    string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
-                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
-                ]) {
-                    sh '''
-                        echo "Getting ACR admin credentials..."
-                        ACR_CREDENTIALS=$(docker run --rm \
-                        -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                        -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                        -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                        mcr.microsoft.com/azure-cli:latest \
-                        sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr credential show --name jenkinscicrdacr --query '{username:username, password:passwords[0].value}' -o json")
-                        
-                        ACR_USERNAME=$(echo $ACR_CREDENTIALS | jq -r '.username')
-                        ACR_PASSWORD=$(echo $ACR_CREDENTIALS | jq -r '.password')
-                        
-                        echo "Logging into ACR with admin credentials..."
-                        echo "${ACR_PASSWORD}" | docker login jenkinscicrdacr.azurecr.io -u "${ACR_USERNAME}" --password-stdin
-                        
-                        echo "✅ ACR login successful!"
-                        
-                        # Verificar login
-                        echo "Verifying login..."
-                        docker run --rm jenkinscicrdacr.azurecr.io/hello-world:latest echo "Login test" 2>/dev/null || echo "Ready to push images to ACR"
-                    '''
-                }
-            }
-        }
+        //             if (buildDir == 'service-app') {
+        //                 dir('service-app') {
+        //                     sh """
+        //                         echo "Building image from service-app directory: ${APP_NAME}:${IMAGE_TAG}"
+        //                         docker build -t ${APP_NAME}:${IMAGE_TAG} .
+        //                         docker tag ${APP_NAME}:${IMAGE_TAG} ${APP_NAME}:latest
+        //                         docker tag ${APP_NAME}:${IMAGE_TAG} ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}
+        //                         docker tag ${APP_NAME}:${IMAGE_TAG} ${ACR_LOGIN_SERVER}/${APP_NAME}:latest
+        //                     """
+        //                 }
+        //             } else {
+        //                 sh """
+        //                     echo "Building image from root directory: ${APP_NAME}:${IMAGE_TAG}"
+        //                     docker build -t ${APP_NAME}:${IMAGE_TAG} .
+        //                     docker tag ${APP_NAME}:${IMAGE_TAG} ${APP_NAME}:latest
+        //                     docker tag ${APP_NAME}:${IMAGE_TAG} ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}
+        //                     docker tag ${APP_NAME}:${IMAGE_TAG} ${ACR_LOGIN_SERVER}/${APP_NAME}:latest
+        //                 """
+        //             }
+        //         }
+        //     }
+        // }
         
-        stage('📤 Push to ACR') {
-            steps {
-                echo "📤 Pushing image to Azure Container Registry..."
-                sh """
-                    echo "Pushing ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}..."
-                    docker push ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}
-                    
-                    echo "Pushing ${ACR_LOGIN_SERVER}/${APP_NAME}:latest..."
-                    docker push ${ACR_LOGIN_SERVER}/${APP_NAME}:latest
-                    
-                    echo "✅ Images pushed successfully!"
-                """
-            }
-        }
-        
-        stage('🚀 Deploy to ACI') {
-            steps {
-                echo "🚀 Deploying to Azure Container Instances..."
-                withCredentials([
-                    string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
-                    string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
-                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID'),
-                    string(credentialsId: 'azure-subscription-id', variable: 'AZURE_SUBSCRIPTION_ID')
-                ]) {
-                    script {
-                        sh '''
-                            echo "Logging into Azure for deployment..."
-                            az login --service-principal -u "${AZURE_CLIENT_ID}" -p "${AZURE_CLIENT_SECRET}" --tenant "${AZURE_TENANT_ID}"
-                            az account set --subscription "${AZURE_SUBSCRIPTION_ID}"
-                        '''
+        // stage('🏗️ Setup ACR') {
+        //     steps {
+        //         echo "🏗️ Setting up Azure Container Registry..."
+        //         withCredentials([
+        //             string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
+        //             string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
+        //             string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
+        //         ]) {
+        //             sh '''
+        //                 echo "Logging into Azure CLI..."
+        //                 docker run --rm \
+        //                 -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
+        //                 -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
+        //                 -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
+        //                 mcr.microsoft.com/azure-cli:latest \
+        //                 az login --service-principal -u "${AZURE_CLIENT_ID}" -p "${AZURE_CLIENT_SECRET}" --tenant "${AZURE_TENANT_ID}"
                         
-                        // Tentar criar container com tratamento de erro melhorado
-                        script {
-                            def deployResult = sh(
-                                script: """
-                                    echo "Creating new container instance..."
-                                    az container create \
-                                        --resource-group ${RESOURCE_GROUP} \
-                                        --name ${CONTAINER_GROUP} \
-                                        --image ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG} \
-                                        --cpu 0.5 \
-                                        --memory 1.0 \
-                                        --ports 8000 \
-                                        --protocol TCP \
-                                        --restart-policy Always \
-                                        --registry-login-server ${ACR_LOGIN_SERVER} \
-                                        --registry-username ${AZURE_CLIENT_ID} \
-                                        --registry-password ${AZURE_CLIENT_SECRET} \
-                                        --ip-address Public \
-                                        --dns-name-label ${CONTAINER_GROUP} \
-                                        --environment-variables PYTHONUNBUFFERED=1 PORT=8000 ENV=production
-                                """,
-                                returnStatus: true
-                            )
+        //                 echo "Checking if ACR 'jenkinscicrdacr' exists..."
+        //                 ACR_EXISTS=$(docker run --rm \
+        //                 -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
+        //                 -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
+        //                 -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
+        //                 mcr.microsoft.com/azure-cli:latest \
+        //                 sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr list --query \"[?name=='jenkinscicrdacr'].name\" -o tsv")
+                        
+        //                 if [ -z "$ACR_EXISTS" ]; then
+        //                     echo "🔨 ACR 'jenkinscicrdacr' not found. Creating it..."
                             
-                            if (deployResult != 0) {
-                                echo "⚠️ Container create failed, trying to delete and recreate..."
-                                sh """
-                                    echo "Deleting existing container..."
-                                    az container delete \
-                                        --resource-group ${RESOURCE_GROUP} \
-                                        --name ${CONTAINER_GROUP} \
-                                        --yes || true
+        //                     # Criar resource group se não existir
+        //                     echo "Creating resource group (if not exists)..."
+        //                     docker run --rm \
+        //                     -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
+        //                     -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
+        //                     -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
+        //                     mcr.microsoft.com/azure-cli:latest \
+        //                     sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az group create --name rg-jenkins-cicd --location brazilsouth --output none" || echo "Resource group might already exist"
+                            
+        //                     # Criar ACR
+        //                     echo "Creating ACR 'jenkinscicrdacr'..."
+        //                     docker run --rm \
+        //                     -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
+        //                     -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
+        //                     -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
+        //                     mcr.microsoft.com/azure-cli:latest \
+        //                     sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr create --resource-group rg-jenkins-cicd --name jenkinscicrdacr --sku Basic --admin-enabled true --output none"
+                            
+        //                     echo "✅ ACR 'jenkinscicrdacr' created successfully!"
+        //                 else
+        //                     echo "✅ ACR 'jenkinscicrdacr' already exists. Skipping creation."
+        //                 fi
+                        
+        //                 # Verificar se admin está habilitado (necessário para login)
+        //                 echo "Ensuring admin user is enabled..."
+        //                 docker run --rm \
+        //                 -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
+        //                 -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
+        //                 -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
+        //                 mcr.microsoft.com/azure-cli:latest \
+        //                 sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr update --name jenkinscicrdacr --admin-enabled true --output none"
+                        
+        //                 echo "📋 ACR setup completed!"
+        //             '''
+        //         }
+        //     }
+        // }
+
+        // stage('🔐 Login to ACR') {
+        //     steps {
+        //         echo "🔐 Logging into Azure Container Registry..."
+        //         withCredentials([
+        //             string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
+        //             string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
+        //             string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
+        //         ]) {
+        //             sh '''
+        //                 echo "Getting ACR admin credentials..."
+        //                 ACR_CREDENTIALS=$(docker run --rm \
+        //                 -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
+        //                 -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
+        //                 -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
+        //                 mcr.microsoft.com/azure-cli:latest \
+        //                 sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr credential show --name jenkinscicrdacr --query '{username:username, password:passwords[0].value}' -o json")
+                        
+        //                 ACR_USERNAME=$(echo $ACR_CREDENTIALS | jq -r '.username')
+        //                 ACR_PASSWORD=$(echo $ACR_CREDENTIALS | jq -r '.password')
+                        
+        //                 echo "Logging into ACR with admin credentials..."
+        //                 echo "${ACR_PASSWORD}" | docker login jenkinscicrdacr.azurecr.io -u "${ACR_USERNAME}" --password-stdin
+                        
+        //                 echo "✅ ACR login successful!"
+                        
+        //                 # Verificar login
+        //                 echo "Verifying login..."
+        //                 docker run --rm jenkinscicrdacr.azurecr.io/hello-world:latest echo "Login test" 2>/dev/null || echo "Ready to push images to ACR"
+        //             '''
+        //         }
+        //     }
+        // }
+        
+        // stage('📤 Push to ACR') {
+        //     steps {
+        //         echo "📤 Pushing image to Azure Container Registry..."
+        //         sh """
+        //             echo "Pushing ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}..."
+        //             docker push ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}
+                    
+        //             echo "Pushing ${ACR_LOGIN_SERVER}/${APP_NAME}:latest..."
+        //             docker push ${ACR_LOGIN_SERVER}/${APP_NAME}:latest
+                    
+        //             echo "✅ Images pushed successfully!"
+        //         """
+        //     }
+        // }
+        
+        // stage('🚀 Deploy to ACI') {
+        //     steps {
+        //         echo "🚀 Deploying to Azure Container Instances..."
+        //         withCredentials([
+        //             string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
+        //             string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
+        //             string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID'),
+        //             string(credentialsId: 'azure-subscription-id', variable: 'AZURE_SUBSCRIPTION_ID')
+        //         ]) {
+        //             script {
+        //                 sh '''
+        //                     echo "Logging into Azure for deployment..."
+        //                     az login --service-principal -u "${AZURE_CLIENT_ID}" -p "${AZURE_CLIENT_SECRET}" --tenant "${AZURE_TENANT_ID}"
+        //                     az account set --subscription "${AZURE_SUBSCRIPTION_ID}"
+        //                 '''
+                        
+        //                 // Tentar criar container com tratamento de erro melhorado
+        //                 script {
+        //                     def deployResult = sh(
+        //                         script: """
+        //                             echo "Creating new container instance..."
+        //                             az container create \
+        //                                 --resource-group ${RESOURCE_GROUP} \
+        //                                 --name ${CONTAINER_GROUP} \
+        //                                 --image ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG} \
+        //                                 --cpu 0.5 \
+        //                                 --memory 1.0 \
+        //                                 --ports 8000 \
+        //                                 --protocol TCP \
+        //                                 --restart-policy Always \
+        //                                 --registry-login-server ${ACR_LOGIN_SERVER} \
+        //                                 --registry-username ${AZURE_CLIENT_ID} \
+        //                                 --registry-password ${AZURE_CLIENT_SECRET} \
+        //                                 --ip-address Public \
+        //                                 --dns-name-label ${CONTAINER_GROUP} \
+        //                                 --environment-variables PYTHONUNBUFFERED=1 PORT=8000 ENV=production
+        //                         """,
+        //                         returnStatus: true
+        //                     )
+                            
+        //                     if (deployResult != 0) {
+        //                         echo "⚠️ Container create failed, trying to delete and recreate..."
+        //                         sh """
+        //                             echo "Deleting existing container..."
+        //                             az container delete \
+        //                                 --resource-group ${RESOURCE_GROUP} \
+        //                                 --name ${CONTAINER_GROUP} \
+        //                                 --yes || true
                                     
-                                    sleep 30
+        //                             sleep 30
                                     
-                                    echo "Creating new container..."
-                                    az container create \
-                                        --resource-group ${RESOURCE_GROUP} \
-                                        --name ${CONTAINER_GROUP} \
-                                        --image ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG} \
-                                        --cpu 0.5 \
-                                        --memory 1.0 \
-                                        --ports 8000 \
-                                        --protocol TCP \
-                                        --restart-policy Always \
-                                        --registry-login-server ${ACR_LOGIN_SERVER} \
-                                        --registry-username ${AZURE_CLIENT_ID} \
-                                        --registry-password ${AZURE_CLIENT_SECRET} \
-                                        --ip-address Public \
-                                        --dns-name-label ${CONTAINER_GROUP} \
-                                        --environment-variables PYTHONUNBUFFERED=1 PORT=8000 ENV=production
-                                """
-                                echo "🔄 Container recreated successfully!"
-                            } else {
-                                echo "✅ Container created successfully!"
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        //                             echo "Creating new container..."
+        //                             az container create \
+        //                                 --resource-group ${RESOURCE_GROUP} \
+        //                                 --name ${CONTAINER_GROUP} \
+        //                                 --image ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG} \
+        //                                 --cpu 0.5 \
+        //                                 --memory 1.0 \
+        //                                 --ports 8000 \
+        //                                 --protocol TCP \
+        //                                 --restart-policy Always \
+        //                                 --registry-login-server ${ACR_LOGIN_SERVER} \
+        //                                 --registry-username ${AZURE_CLIENT_ID} \
+        //                                 --registry-password ${AZURE_CLIENT_SECRET} \
+        //                                 --ip-address Public \
+        //                                 --dns-name-label ${CONTAINER_GROUP} \
+        //                                 --environment-variables PYTHONUNBUFFERED=1 PORT=8000 ENV=production
+        //                         """
+        //                         echo "🔄 Container recreated successfully!"
+        //                     } else {
+        //                         echo "✅ Container created successfully!"
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
         
-        stage('🔍 Health Check') {
-            steps {
-                echo "🔍 Performing health check..."
-                withCredentials([
-                    string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
-                    string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
-                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
-                ]) {
-                    script {
-                        sh '''
-                            echo "Checking container status..."
-                            az login --service-principal -u "${AZURE_CLIENT_ID}" -p "${AZURE_CLIENT_SECRET}" --tenant "${AZURE_TENANT_ID}"
+        // stage('🔍 Health Check') {
+        //     steps {
+        //         echo "🔍 Performing health check..."
+        //         withCredentials([
+        //             string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
+        //             string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
+        //             string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
+        //         ]) {
+        //             script {
+        //                 sh '''
+        //                     echo "Checking container status..."
+        //                     az login --service-principal -u "${AZURE_CLIENT_ID}" -p "${AZURE_CLIENT_SECRET}" --tenant "${AZURE_TENANT_ID}"
                             
-                            # Verificar status do container
-                            CONTAINER_STATUS=$(az container show \
-                                --resource-group ${RESOURCE_GROUP} \
-                                --name ${CONTAINER_GROUP} \
-                                --query "instanceView.state" \
-                                --output tsv)
+        //                     # Verificar status do container
+        //                     CONTAINER_STATUS=$(az container show \
+        //                         --resource-group ${RESOURCE_GROUP} \
+        //                         --name ${CONTAINER_GROUP} \
+        //                         --query "instanceView.state" \
+        //                         --output tsv)
                             
-                            echo "Container Status: ${CONTAINER_STATUS}"
+        //                     echo "Container Status: ${CONTAINER_STATUS}"
                             
-                            if [ "${CONTAINER_STATUS}" = "Running" ]; then
-                                echo "✅ Container is running!"
+        //                     if [ "${CONTAINER_STATUS}" = "Running" ]; then
+        //                         echo "✅ Container is running!"
                                 
-                                # Aguardar container inicializar
-                                sleep 30
+        //                         # Aguardar container inicializar
+        //                         sleep 30
                                 
-                                # Obter IP do container
-                                CONTAINER_IP=$(az container show \
-                                    --resource-group ${RESOURCE_GROUP} \
-                                    --name ${CONTAINER_GROUP} \
-                                    --query "ipAddress.ip" \
-                                    --output tsv)
+        //                         # Obter IP do container
+        //                         CONTAINER_IP=$(az container show \
+        //                             --resource-group ${RESOURCE_GROUP} \
+        //                             --name ${CONTAINER_GROUP} \
+        //                             --query "ipAddress.ip" \
+        //                             --output tsv)
                                 
-                                echo "Container IP: ${CONTAINER_IP}"
-                                echo "Application URL: http://${CONTAINER_GROUP}.eastus.azurecontainer.io:8000"
+        //                         echo "Container IP: ${CONTAINER_IP}"
+        //                         echo "Application URL: http://${CONTAINER_GROUP}.eastus.azurecontainer.io:8000"
                                 
-                            else
-                                echo "⚠️ Container is not running. Status: ${CONTAINER_STATUS}"
+        //                     else
+        //                         echo "⚠️ Container is not running. Status: ${CONTAINER_STATUS}"
                                 
-                                # Mostrar logs para debug
-                                echo "Container logs:"
-                                az container logs \
-                                    --resource-group ${RESOURCE_GROUP} \
-                                    --name ${CONTAINER_GROUP} || true
-                            fi
-                        '''
-                    }
-                }
-            }
-        }
+        //                         # Mostrar logs para debug
+        //                         echo "Container logs:"
+        //                         az container logs \
+        //                             --resource-group ${RESOURCE_GROUP} \
+        //                             --name ${CONTAINER_GROUP} || true
+        //                     fi
+        //                 '''
+        //             }
+        //         }
+        //     }
+        // }
         
-        stage('📊 Generate Reports') {
-            steps {
-                echo "📊 Generating deployment reports..."
-                withCredentials([
-                    string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
-                    string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
-                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
-                ]) {
-                    script {
-                        sh '''
-                            echo "Logging into Azure for reports..."
-                            az login --service-principal -u "${AZURE_CLIENT_ID}" -p "${AZURE_CLIENT_SECRET}" --tenant "${AZURE_TENANT_ID}"
+        // stage('📊 Generate Reports') {
+        //     steps {
+        //         echo "📊 Generating deployment reports..."
+        //         withCredentials([
+        //             string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
+        //             string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
+        //             string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
+        //         ]) {
+        //             script {
+        //                 sh '''
+        //                     echo "Logging into Azure for reports..."
+        //                     az login --service-principal -u "${AZURE_CLIENT_ID}" -p "${AZURE_CLIENT_SECRET}" --tenant "${AZURE_TENANT_ID}"
                             
-                            echo "=== DEPLOYMENT REPORT ===" > deployment_report.txt
-                            echo "Build Number: ${BUILD_NUMBER}" >> deployment_report.txt
-                            echo "Image: ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}" >> deployment_report.txt
-                            echo "Timestamp: $(date)" >> deployment_report.txt
-                            echo "Status: SUCCESS" >> deployment_report.txt
-                            echo "" >> deployment_report.txt
+        //                     echo "=== DEPLOYMENT REPORT ===" > deployment_report.txt
+        //                     echo "Build Number: ${BUILD_NUMBER}" >> deployment_report.txt
+        //                     echo "Image: ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}" >> deployment_report.txt
+        //                     echo "Timestamp: $(date)" >> deployment_report.txt
+        //                     echo "Status: SUCCESS" >> deployment_report.txt
+        //                     echo "" >> deployment_report.txt
                             
-                            # Status do container
-                            echo "=== CONTAINER STATUS ===" >> deployment_report.txt
-                            az container show \
-                                --resource-group ${RESOURCE_GROUP} \
-                                --name ${CONTAINER_GROUP} \
-                                --query "instanceView.state" \
-                                --output tsv >> deployment_report.txt 2>/dev/null || echo "Status check failed" >> deployment_report.txt
+        //                     # Status do container
+        //                     echo "=== CONTAINER STATUS ===" >> deployment_report.txt
+        //                     az container show \
+        //                         --resource-group ${RESOURCE_GROUP} \
+        //                         --name ${CONTAINER_GROUP} \
+        //                         --query "instanceView.state" \
+        //                         --output tsv >> deployment_report.txt 2>/dev/null || echo "Status check failed" >> deployment_report.txt
                             
-                            # URL da aplicação
-                            echo "" >> deployment_report.txt
-                            echo "=== APPLICATION URLs ===" >> deployment_report.txt
-                            echo "Public URL: http://${CONTAINER_GROUP}.eastus.azurecontainer.io:8000" >> deployment_report.txt
+        //                     # URL da aplicação
+        //                     echo "" >> deployment_report.txt
+        //                     echo "=== APPLICATION URLs ===" >> deployment_report.txt
+        //                     echo "Public URL: http://${CONTAINER_GROUP}.eastus.azurecontainer.io:8000" >> deployment_report.txt
                             
-                            # IP do container
-                            CONTAINER_IP=$(az container show \
-                                --resource-group ${RESOURCE_GROUP} \
-                                --name ${CONTAINER_GROUP} \
-                                --query "ipAddress.ip" \
-                                --output tsv 2>/dev/null || echo "IP not available")
-                            echo "Container IP: ${CONTAINER_IP}" >> deployment_report.txt
+        //                     # IP do container
+        //                     CONTAINER_IP=$(az container show \
+        //                         --resource-group ${RESOURCE_GROUP} \
+        //                         --name ${CONTAINER_GROUP} \
+        //                         --query "ipAddress.ip" \
+        //                         --output tsv 2>/dev/null || echo "IP not available")
+        //                     echo "Container IP: ${CONTAINER_IP}" >> deployment_report.txt
                             
-                            # Logs do container (últimas 20 linhas)
-                            echo "" >> deployment_report.txt
-                            echo "=== CONTAINER LOGS (last 20 lines) ===" >> deployment_report.txt
-                            az container logs \
-                                --resource-group ${RESOURCE_GROUP} \
-                                --name ${CONTAINER_GROUP} \
-                                --tail 20 >> deployment_report.txt 2>/dev/null || echo "Logs not available" >> deployment_report.txt
-                        '''
-                    }
-                }
-            }
-        }
+        //                     # Logs do container (últimas 20 linhas)
+        //                     echo "" >> deployment_report.txt
+        //                     echo "=== CONTAINER LOGS (last 20 lines) ===" >> deployment_report.txt
+        //                     az container logs \
+        //                         --resource-group ${RESOURCE_GROUP} \
+        //                         --name ${CONTAINER_GROUP} \
+        //                         --tail 20 >> deployment_report.txt 2>/dev/null || echo "Logs not available" >> deployment_report.txt
+        //                 '''
+        //             }
+        //         }
+        //     }
+        // }
     }
     
-    post {
-        always {
-            echo "🧹 Cleaning up..."
+    // post {
+    //     always {
+    //         echo "🧹 Cleaning up..."
             
-            // Arquivar artefatos
-            archiveArtifacts artifacts: '*.json, *.txt, **/report-task.txt', allowEmptyArchive: true
+    //         // Arquivar artefatos
+    //         archiveArtifacts artifacts: '*.json, *.txt, **/report-task.txt', allowEmptyArchive: true
             
-            // Limpar imagens locais para economizar espaço
-            sh """
-                docker rmi ${APP_NAME}:${IMAGE_TAG} || true
-                docker rmi ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG} || true
-                docker rmi ${ACR_LOGIN_SERVER}/${APP_NAME}:latest || true
-                docker system prune -f || true
-            """
-        }
+    //         // Limpar imagens locais para economizar espaço
+    //         sh """
+    //             docker rmi ${APP_NAME}:${IMAGE_TAG} || true
+    //             docker rmi ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG} || true
+    //             docker rmi ${ACR_LOGIN_SERVER}/${APP_NAME}:latest || true
+    //             docker system prune -f || true
+    //         """
+    //     }
         
-        success {
-            echo "🎉 Pipeline executado com sucesso!"
+    //     success {
+    //         echo "🎉 Pipeline executado com sucesso!"
             
-            // Notificar sucesso
-            sh """
-                echo "✅ Deployment Success - Build ${BUILD_NUMBER}" > success_notification.txt
-                echo "Application URL: http://${CONTAINER_GROUP}.eastus.azurecontainer.io:8000" >> success_notification.txt
-                echo "ACR Image: ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}" >> success_notification.txt
-                echo "SonarQube: ${SONAR_SERVER}/dashboard?id=${SONAR_PROJECT}" >> success_notification.txt
-            """
-        }
+    //         // Notificar sucesso
+    //         sh """
+    //             echo "✅ Deployment Success - Build ${BUILD_NUMBER}" > success_notification.txt
+    //             echo "Application URL: http://${CONTAINER_GROUP}.eastus.azurecontainer.io:8000" >> success_notification.txt
+    //             echo "ACR Image: ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}" >> success_notification.txt
+    //             echo "SonarQube: ${SONAR_SERVER}/dashboard?id=${SONAR_PROJECT}" >> success_notification.txt
+    //         """
+    //     }
         
-        failure {
-            echo "❌ Pipeline falhou!"
+    //     failure {
+    //         echo "❌ Pipeline falhou!"
             
-            // Notificar falha
-            sh """
-                echo "❌ Deployment Failed - Build ${BUILD_NUMBER}" > failure_notification.txt
-                echo "Check logs for details" >> failure_notification.txt
-            """
-        }
+    //         // Notificar falha
+    //         sh """
+    //             echo "❌ Deployment Failed - Build ${BUILD_NUMBER}" > failure_notification.txt
+    //             echo "Check logs for details" >> failure_notification.txt
+    //         """
+    //     }
         
-        unstable {
-            echo "⚠️ Pipeline instável - verifique os alertas"
+    //     unstable {
+    //         echo "⚠️ Pipeline instável - verifique os alertas"
             
-            // Notificar instabilidade
-            sh """
-                echo "⚠️ Deployment Unstable - Build ${BUILD_NUMBER}" > unstable_notification.txt
-                echo "Pipeline completed with warnings" >> unstable_notification.txt
-                echo "Check SonarQube quality gate results" >> unstable_notification.txt
-            """
-        }
-    }
+    //         // Notificar instabilidade
+    //         sh """
+    //             echo "⚠️ Deployment Unstable - Build ${BUILD_NUMBER}" > unstable_notification.txt
+    //             echo "Pipeline completed with warnings" >> unstable_notification.txt
+    //             echo "Check SonarQube quality gate results" >> unstable_notification.txt
+    //         """
+    //     }
+    // }
 }
