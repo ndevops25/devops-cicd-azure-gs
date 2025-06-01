@@ -223,6 +223,26 @@ pipeline {
                         mcr.microsoft.com/azure-cli:latest \
                         az login --service-principal -u "${AZURE_CLIENT_ID}" -p "${AZURE_CLIENT_SECRET}" --tenant "${AZURE_TENANT_ID}"
                         
+                        echo "Checking if ACR exists..."
+                        ACR_EXISTS=$(docker run --rm \
+                        -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
+                        -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
+                        -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
+                        mcr.microsoft.com/azure-cli:latest \
+                        sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr list --query \"[?name=='jenkinscicrdacr'].name\" -o tsv")
+                        
+                        if [ -z "$ACR_EXISTS" ]; then
+                            echo "❌ ACR 'jenkinscicrdacr' not found in current subscription"
+                            echo "Available ACRs in subscription:"
+                            docker run --rm \
+                            -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
+                            -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
+                            -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
+                            mcr.microsoft.com/azure-cli:latest \
+                            sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr list --query \"[].{Name:name, ResourceGroup:resourceGroup, LoginServer:loginServer}\" -o table"
+                            exit 1
+                        fi
+                        
                         echo "Getting ACR access token..."
                         ACR_TOKEN=$(docker run --rm \
                         -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
