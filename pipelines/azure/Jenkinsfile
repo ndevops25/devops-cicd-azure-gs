@@ -205,50 +205,7 @@ pipeline {
                 }
             }
         }
-
-        stage('📋 Check Resource Groups') {
-            steps {
-                echo "📋 Checking available Resource Groups..."
-                withCredentials([
-                    string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
-                    string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
-                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
-                ]) {
-                    sh '''
-                        echo "Logging into Azure CLI..."
-                        docker run --rm \
-                        -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                        -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                        -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                        mcr.microsoft.com/azure-cli:latest \
-                        az login --service-principal -u "${AZURE_CLIENT_ID}" -p "${AZURE_CLIENT_SECRET}" --tenant "${AZURE_TENANT_ID}"
-                        
-                        echo "Available Resource Groups in subscription:"
-                        docker run --rm \
-                        -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                        -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                        -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                        mcr.microsoft.com/azure-cli:latest \
-                        sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az group list --query '[].{Name:name, Location:location, ProvisioningState:properties.provisioningState}' -o table"
-                        
-                        echo "Checking if 'rg-jenkins-cicd' exists specifically..."
-                        RG_EXISTS=$(docker run --rm \
-                        -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                        -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                        -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                        mcr.microsoft.com/azure-cli:latest \
-                        sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az group list --query \"[?name==\\\`rg-jenkins-cicd\\\`].name\" -o tsv")
-                        
-                        if [ -z "$RG_EXISTS" ]; then
-                            echo "❌ Resource group 'rg-jenkins-cicd' NOT FOUND"
-                        else
-                            echo "✅ Resource group 'rg-jenkins-cicd' EXISTS"
-                        fi
-                    '''
-                }
-            }
-        }
-
+        
         stage('🏗️ Setup ACR') {
             steps {
                 echo "🏗️ Setting up Azure Container Registry..."
@@ -272,32 +229,19 @@ pipeline {
                         -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
                         -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
                         mcr.microsoft.com/azure-cli:latest \
-                        sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr list --query \"[?name==\\\`jenkinscicrdacr\\\`].name\" -o tsv")
+                        sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr list --query \"[?name=='jenkinscicrdacr'].name\" -o tsv")
                         
                         if [ -z "$ACR_EXISTS" ]; then
                             echo "🔨 ACR 'jenkinscicrdacr' not found. Creating it..."
                             
-                            # Verificar se resource group existe
-                            echo "Checking if resource group 'rg-jenkins-cicd' exists..."
-                            RG_EXISTS=$(docker run --rm \
+                            # Criar resource group se não existir
+                            echo "Creating resource group (if not exists)..."
+                            docker run --rm \
                             -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
                             -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
                             -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
                             mcr.microsoft.com/azure-cli:latest \
-                            sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az group list --query \"[?name==\\\`rg-jenkins-cicd\\\`].name\" -o tsv")
-                            
-                            if [ -z "$RG_EXISTS" ]; then
-                                echo "🔨 Resource group 'rg-jenkins-cicd' not found. Creating it..."
-                                docker run --rm \
-                                -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                                -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                                -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                                mcr.microsoft.com/azure-cli:latest \
-                                sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az group create --name rg-jenkins-cicd --location brazilsouth --output none"
-                                echo "✅ Resource group 'rg-jenkins-cicd' created successfully!"
-                            else
-                                echo "✅ Resource group 'rg-jenkins-cicd' already exists. Skipping creation."
-                            fi
+                            sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az group create --name rg-jenkins-cicd --location brazilsouth --output none" || echo "Resource group might already exist"
                             
                             # Criar ACR
                             echo "Creating ACR 'jenkinscicrdacr'..."
