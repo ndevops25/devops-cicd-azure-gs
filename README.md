@@ -252,7 +252,7 @@ terraform apply tfplan
 ⚙️ Configuração do Jenkins
 --------------------------
 
-<img src="/docs/images/pipeline-running.png" alt="Jenkins Pipeline">
+<img src="/docs/images/steps/jenkins/pipeline-jenkins-sonarqube.png" alt="Jenkins Pipeline inegrated with SonarQube">
 
 ### 1\. Acessar Jenkins
 
@@ -420,10 +420,8 @@ Para executar o pipeline, você pode:
 2.  Clicar em "Build Now"
 3.  Acompanhar a execução nos logs ou na visualização de estágios
 
-<img src="/docs/images/pipeline-running.png" alt="Jenkins Pipeline in platform">
-
 - Pipeline executado:
-<img src="/docs/images/jenkins-pipeline-with-sonarqube.png" alt="Jenkins Pipeline Executed with SonarQube">
+<img src="/docs/images/steps/jenkins/pipeline-jenkins-sonarqube.png" alt="Jenkins Pipeline Executed with SonarQube">
 
 🔍 Resultados da Análise de Código
 ----------------------------------
