@@ -3,7 +3,7 @@ pipeline {
     
     environment {
         // Configurações do ACR
-        ACR_NAME = 'jenkinscidacr'
+        ACR_NAME = 'jenkinscicdacr'
         ACR_LOGIN_SERVER = "jenkinscicrdacr.azurecr.io"
         
         // Configurações da aplicação
