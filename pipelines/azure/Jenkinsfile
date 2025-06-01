@@ -2,25 +2,44 @@ pipeline {
     agent any
     
     environment {
-        AZURE_SUBSCRIPTION = 'Subscription ID'
+        // Configurações do Azure - pegue das credenciais do Jenkins
+        AZURE_SUBSCRIPTION = '7ffb36a8-96d2-4da6-ad22-e2751a217c90' // Sua subscription ID
+        
+        // Configurações do ACR
         ACR_NAME = 'jenkinscidacr'
-        ACR_REPOSITORY = "${ACR_NAME}.azurecr.io/service-app"
+        ACR_LOGIN_SERVER = "${ACR_NAME}.azurecr.io"
+        
+        // Configurações da aplicação
+        APP_NAME = 'service-app'
         DOCKER_IMAGE = 'service-app'
         DOCKER_TAG = "${BUILD_NUMBER}"
+        IMAGE_TAG = "${BUILD_NUMBER}"
         APP_PORT = '5001'
         APP_VERSION = "${BUILD_NUMBER}"
-        ACI_RESOURCE_GROUP = 'jenkins-cicd-rg'
-        ACI_CONTAINER_GROUP = 'jenkins-cicd-container-group'
+        
+        // Configurações do Azure Container Instances
+        RESOURCE_GROUP = 'jenkins-cicd-rg'
+        CONTAINER_GROUP = 'jenkins-cicd-container-group'
+        
+        // Configurações do SonarQube e Trivy (opcional)
         SONAR_SERVER = 'http://your-sonarqube-ip:9000'
         SONAR_PROJECT = 'service-app'
+        TRIVY_SERVER_URL = 'http://your-trivy-server:8080' // Configure conforme necessário
+        
+        // Configuração do workspace
         HOME = "${WORKSPACE}"
     }
     
     stages {
         stage('Verify Azure Access') {
             steps {
-                echo "Verificando acesso ao Azure..."
-                withCredentials([azureServicePrincipal('azure-credentials')]) {
+                echo "🔍 Verificando acesso ao Azure..."
+                withCredentials([
+                    string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
+                    string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
+                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID'),
+                    string(credentialsId: 'azure-subscription-id', variable: 'AZURE_SUBSCRIPTION_ID')
+                ]) {
                     sh '''
                     echo "Testando acesso ao Azure usando Docker..."
                     docker run --rm \
@@ -34,237 +53,121 @@ pipeline {
             }
         }
         
-        // stage('Code Analysis') {
-        //     steps {
-        //         echo "Executando análise de código com SonarQube..."
-        //         withSonarQubeEnv('SonarQube') {  // Isso configura as variáveis de ambiente do SonarQube
-        //             dir('../../service-app') {
-        //                 script {
-        //                     // Primeiro, vamos fazer download e descompactar o SonarScanner no workspace
-        //                     sh '''
-        //                     # Verificar e criar diretório para o scanner
-        //                     mkdir -p ${WORKSPACE}/sonar-scanner
-                            
-        //                     # Baixar o SonarScanner
-        //                     echo "Baixando SonarScanner..."
-        //                     curl -L -o ${WORKSPACE}/sonar-scanner-cli.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856-linux.zip
-                            
-        //                     # Descompactar
-        //                     unzip -q -o ${WORKSPACE}/sonar-scanner-cli.zip -d ${WORKSPACE}/sonar-scanner
-                            
-        //                     # Tornar o binário executável
-        //                     chmod +x ${WORKSPACE}/sonar-scanner/sonar-scanner-*/bin/sonar-scanner
-                            
-        //                     # Verificar a instalação
-        //                     ls -la ${WORKSPACE}/sonar-scanner/sonar-scanner-*/bin/
-        //                     '''
-                            
-        //                     // Criar o arquivo de propriedades do SonarQube
-        //                     sh '''
-        //                     # Criar arquivo sonar-project.properties
-        //                     cat > sonar-project.properties << EOL
-        //                     # Identificação do projeto
-        //                     sonar.projectKey=service-app
-        //                     sonar.projectName=service App
-        //                     sonar.projectVersion=${APP_VERSION}
-
-        //                     # Configurações do servidor
-        //                     sonar.host.url=http://35.171.200.117:9000
-
-        //                     # Caminho para os arquivos de código
-        //                     sonar.sources=.
-        //                     sonar.python.coverage.reportPaths=coverage.xml
-        //                     sonar.python.xunit.reportPath=test-results.xml
-
-        //                     # Codificação do código-fonte
-        //                     sonar.sourceEncoding=UTF-8
-        //                     EOL
-        //                     '''
-                            
-        //                     // Executar o SonarScanner com o token
-        //                     withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-        //                         sh '''
-        //                         # Exibir o diretório atual e listar arquivos
-        //                         pwd
-        //                         ls -la
-                                
-        //                         # Exibir o arquivo de propriedades
-        //                         echo "Conteúdo do arquivo sonar-project.properties:"
-        //                         cat sonar-project.properties
-                                
-        //                         # Executar o SonarScanner
-        //                         echo "Executando SonarScanner..."
-        //                         ${WORKSPACE}/sonar-scanner/sonar-scanner-*/bin/sonar-scanner \
-        //                         -Dsonar.login=${SONAR_TOKEN} \
-        //                         -Dsonar.projectBaseDir=$(pwd) \
-        //                         -Dsonar.verbose=true
-                                
-        //                         # Verificar se o relatório foi gerado
-        //                         echo "Verificando se o arquivo report-task.txt foi gerado:"
-        //                         find . -name report-task.txt
-        //                         find .scannerwork -name "report-task.txt" || echo "Arquivo não encontrado em .scannerwork"
-                                
-        //                         # Se encontrado, copiar para o diretório raiz do workspace
-        //                         if [ -f .scannerwork/report-task.txt ]; then
-        //                             echo "Copiando report-task.txt para o diretório raiz..."
-        //                             cp .scannerwork/report-task.txt .
-        //                         fi
-                                
-        //                         # Mostrar o conteúdo do relatório se existir
-        //                         if [ -f report-task.txt ]; then
-        //                             echo "Conteúdo do arquivo report-task.txt:"
-        //                             cat report-task.txt
-        //                         fi
-        //                         '''
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
-
-        // stage('🛡️ Security Scan - Trivy') {
-        //     steps {
-        //         echo "🛡️ Scanning image for vulnerabilities with Trivy..."
-        //         script {
-        //             try {
-        //                 // Scan da imagem com Trivy via API
-        //                 def trivyResponse = sh(
-        //                     script: """
-        //                         curl -X POST ${TRIVY_SERVER_URL}/scan \\
-        //                              -H "Content-Type: application/json" \\
-        //                              -d '{"image": "${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}"}' \\
-        //                              -w "%{http_code}" -o trivy_response.json
-        //                     """,
-        //                     returnStdout: true
-        //                 ).trim()
-                        
-        //                 if (trivyResponse == "200") {
-        //                     echo "✅ Trivy scan completed successfully"
-                            
-        //                     // Ler resultados
-        //                     def response = readJSON file: 'trivy_response.json'
-        //                     echo "📋 Scan report: ${response.message}"
-                            
-        //                 } else {
-        //                     echo "⚠️ Trivy scan returned status: ${trivyResponse}"
-                            
-        //                     // Continuar mesmo com warning (pode ajustar conforme necessário)
-        //                     currentBuild.result = 'UNSTABLE'
-        //                 }
-                        
-        //             } catch (Exception e) {
-        //                 echo "❌ Trivy scan failed: ${e.getMessage()}"
-                        
-        //                 // Decidir se falha o build ou continua
-        //                 // Para ambiente de desenvolvimento, vamos continuar
-        //                 currentBuild.result = 'UNSTABLE'
-        //             }
-        //         }
-        //     }
-        //     post {
-        //         always {
-        //             // Arquivar relatório do Trivy se existir
-        //             archiveArtifacts artifacts: 'trivy_response.json', allowEmptyArchive: true
-        //         }
-        //     }
-        // }
-        
-        stage('📤 Push to ACR') {
-            when {
-                // Só faz push se os testes de segurança passaram ou foram unstable
-                not { 
-                    equals expected: 'FAILURE', actual: currentBuild.result 
-                }
-            }
+        stage('🏗️ Build Docker Image') {
             steps {
-                echo "📤 Pushing image to Azure Container Registry..."
-                withCredentials([usernamePassword(credentialsId: 'acr-credentials', 
-                                                usernameVariable: 'USERNAME', 
-                                                passwordVariable: 'PASSWORD')]) {
-                    sh """
-                        echo \$PASSWORD | docker login \$ACR_LOGIN_SERVER -u \$USERNAME --password-stdin
-                        docker push \$ACR_LOGIN_SERVER/${APP_NAME}:${IMAGE_TAG}
-                        docker push \$ACR_LOGIN_SERVER/${APP_NAME}:latest
-                    """
-                }
-            }
-        }
-        
-        stage('🚀 Deploy to ACI') {
-            when {
-                // Só faz deploy se push foi bem-sucedido
-                not { 
-                    equals expected: 'FAILURE', actual: currentBuild.result 
-                }
-            }
-            steps {
-                echo "🚀 Deploying to Azure Container Instances..."
+                echo "🏗️ Building Docker image..."
                 script {
-                    try {
+                    // Assumindo que o Dockerfile está no diretório service-app
+                    dir('service-app') {
                         sh """
-                            az container create \\
-                                --resource-group \$RESOURCE_GROUP \\
-                                --name \$CONTAINER_GROUP \\
-                                --image \$ACR_LOGIN_SERVER/${APP_NAME}:${IMAGE_TAG} \\
-                                --cpu 0.5 \\
-                                --memory 1.0 \\
-                                --ports 8000 \\
-                                --protocol TCP \\
-                                --restart-policy Always \\
-                                --registry-login-server \$ACR_LOGIN_SERVER \\
-                                --registry-username \$USERNAME \\
-                                --registry-password \$PASSWORD \\
-                                --ip-address Public \\
-                                --dns-name-label ${env.CONTAINER_GROUP} \\
-                                --environment-variables PYTHONUNBUFFERED=1 PORT=8000 ENV=production
+                            echo "Building image: ${APP_NAME}:${IMAGE_TAG}"
+                            docker build -t ${APP_NAME}:${IMAGE_TAG} .
+                            docker tag ${APP_NAME}:${IMAGE_TAG} ${APP_NAME}:latest
+                            docker tag ${APP_NAME}:${IMAGE_TAG} ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}
+                            docker tag ${APP_NAME}:${IMAGE_TAG} ${ACR_LOGIN_SERVER}/${APP_NAME}:latest
                         """
-                        
-                        echo "✅ Deployment completed successfully!"
-                        
-                    } catch (Exception e) {
-                        echo "⚠️ Container create failed, trying restart..."
-                        
-                        // Se create falhar, tentar restart
-                        sh """
-                            az container restart \\
-                                --resource-group \$RESOURCE_GROUP \\
-                                --name \$CONTAINER_GROUP
-                        """
-                        
-                        echo "🔄 Container restarted"
                     }
                 }
             }
         }
         
-        stage('🔍 Post-Deploy Security Scan') {
+        stage('🔐 Login to ACR') {
             steps {
-                echo "🔍 Running post-deployment security scan..."
-                script {
-                    try {
-                        // Aguardar container estar rodando
-                        sleep(30)
-                        
-                        // Scan da imagem deployada
-                        def postDeployResponse = sh(
-                            script: """
-                                curl -X POST ${TRIVY_SERVER_URL}/scan \\
-                                     -H "Content-Type: application/json" \\
-                                     -d '{"image": "${ACR_LOGIN_SERVER}/${APP_NAME}:latest"}' \\
-                                     -w "%{http_code}" -o post_deploy_scan.json
-                            """,
-                            returnStdout: true
-                        ).trim()
-                        
-                        if (postDeployResponse == "200") {
-                            echo "✅ Post-deployment scan completed"
-                        } else {
-                            echo "⚠️ Post-deployment scan warning: ${postDeployResponse}"
+                echo "🔐 Logging into Azure Container Registry..."
+                withCredentials([
+                    string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
+                    string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
+                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
+                ]) {
+                    sh '''
+                    # Login no Azure usando service principal
+                    docker run --rm \
+                      -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
+                      -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
+                      -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
+                      mcr.microsoft.com/azure-cli:latest \
+                      az login --service-principal -u $AZURE_CLIENT_ID -p $AZURE_CLIENT_SECRET --tenant $AZURE_TENANT_ID
+                    
+                    # Login no ACR
+                    echo $AZURE_CLIENT_SECRET | docker login $ACR_LOGIN_SERVER -u $AZURE_CLIENT_ID --password-stdin
+                    '''
+                }
+            }
+        }
+        
+        stage('📤 Push to ACR') {
+            steps {
+                echo "📤 Pushing image to Azure Container Registry..."
+                sh """
+                    docker push ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}
+                    docker push ${ACR_LOGIN_SERVER}/${APP_NAME}:latest
+                    echo "✅ Images pushed successfully!"
+                """
+            }
+        }
+        
+        stage('🚀 Deploy to ACI') {
+            steps {
+                echo "🚀 Deploying to Azure Container Instances..."
+                withCredentials([
+                    string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
+                    string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
+                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
+                ]) {
+                    script {
+                        try {
+                            sh """
+                                # Fazer login no Azure CLI
+                                docker run --rm \
+                                  -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
+                                  -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
+                                  -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
+                                  mcr.microsoft.com/azure-cli:latest \
+                                  az login --service-principal -u \$AZURE_CLIENT_ID -p \$AZURE_CLIENT_SECRET --tenant \$AZURE_TENANT_ID
+                                
+                                # Criar/atualizar container instance
+                                docker run --rm \
+                                  -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
+                                  -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
+                                  -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
+                                  mcr.microsoft.com/azure-cli:latest \
+                                  az container create \
+                                    --resource-group ${RESOURCE_GROUP} \
+                                    --name ${CONTAINER_GROUP} \
+                                    --image ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG} \
+                                    --cpu 0.5 \
+                                    --memory 1.0 \
+                                    --ports 8000 \
+                                    --protocol TCP \
+                                    --restart-policy Always \
+                                    --registry-login-server ${ACR_LOGIN_SERVER} \
+                                    --registry-username \$AZURE_CLIENT_ID \
+                                    --registry-password \$AZURE_CLIENT_SECRET \
+                                    --ip-address Public \
+                                    --dns-name-label ${CONTAINER_GROUP} \
+                                    --environment-variables PYTHONUNBUFFERED=1 PORT=8000 ENV=production
+                            """
+                            
+                            echo "✅ Deployment completed successfully!"
+                            
+                        } catch (Exception e) {
+                            echo "⚠️ Container create failed, trying restart..."
+                            echo "Error: ${e.getMessage()}"
+                            
+                            // Se create falhar, tentar restart
+                            sh """
+                                docker run --rm \
+                                  -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
+                                  -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
+                                  -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
+                                  mcr.microsoft.com/azure-cli:latest \
+                                  az container restart \
+                                    --resource-group ${RESOURCE_GROUP} \
+                                    --name ${CONTAINER_GROUP}
+                            """
+                            
+                            echo "🔄 Container restarted"
                         }
-                        
-                    } catch (Exception e) {
-                        echo "⚠️ Post-deployment scan failed: ${e.getMessage()}"
                     }
                 }
             }
@@ -272,33 +175,48 @@ pipeline {
         
         stage('📊 Generate Reports') {
             steps {
-                echo "📊 Generating security and deployment reports..."
-                script {
-                    // Criar relatório de deployment
-                    sh """
-                        echo "=== DEPLOYMENT REPORT ===" > deployment_report.txt
-                        echo "Build Number: ${BUILD_NUMBER}" >> deployment_report.txt
-                        echo "Image: ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}" >> deployment_report.txt
-                        echo "Timestamp: \$(date)" >> deployment_report.txt
-                        echo "Status: ${currentBuild.result ?: 'SUCCESS'}" >> deployment_report.txt
-                        echo "" >> deployment_report.txt
-                        
-                        # Status do container
-                        echo "=== CONTAINER STATUS ===" >> deployment_report.txt
-                        az container show \\
-                            --resource-group \$RESOURCE_GROUP \\
-                            --name \$CONTAINER_GROUP \\
-                            --query "instanceView.state" \\
-                            --output tsv >> deployment_report.txt 2>/dev/null || echo "Status check failed" >> deployment_report.txt
-                        
-                        # Logs do container (últimas 10 linhas)
-                        echo "" >> deployment_report.txt
-                        echo "=== CONTAINER LOGS (last 10 lines) ===" >> deployment_report.txt
-                        az container logs \\
-                            --resource-group \$RESOURCE_GROUP \\
-                            --name \$CONTAINER_GROUP \\
-                            --tail 10 >> deployment_report.txt 2>/dev/null || echo "Logs not available" >> deployment_report.txt
-                    """
+                echo "📊 Generating deployment reports..."
+                withCredentials([
+                    string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
+                    string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
+                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
+                ]) {
+                    script {
+                        sh """
+                            echo "=== DEPLOYMENT REPORT ===" > deployment_report.txt
+                            echo "Build Number: ${BUILD_NUMBER}" >> deployment_report.txt
+                            echo "Image: ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}" >> deployment_report.txt
+                            echo "Timestamp: \$(date)" >> deployment_report.txt
+                            echo "Status: ${currentBuild.result ?: 'SUCCESS'}" >> deployment_report.txt
+                            echo "" >> deployment_report.txt
+                            
+                            # Status do container
+                            echo "=== CONTAINER STATUS ===" >> deployment_report.txt
+                            docker run --rm \
+                              -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
+                              -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
+                              -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
+                              mcr.microsoft.com/azure-cli:latest \
+                              az container show \
+                                --resource-group ${RESOURCE_GROUP} \
+                                --name ${CONTAINER_GROUP} \
+                                --query "instanceView.state" \
+                                --output tsv >> deployment_report.txt 2>/dev/null || echo "Status check failed" >> deployment_report.txt
+                            
+                            # Logs do container (últimas 10 linhas)
+                            echo "" >> deployment_report.txt
+                            echo "=== CONTAINER LOGS (last 10 lines) ===" >> deployment_report.txt
+                            docker run --rm \
+                              -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
+                              -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
+                              -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
+                              mcr.microsoft.com/azure-cli:latest \
+                              az container logs \
+                                --resource-group ${RESOURCE_GROUP} \
+                                --name ${CONTAINER_GROUP} \
+                                --tail 10 >> deployment_report.txt 2>/dev/null || echo "Logs not available" >> deployment_report.txt
+                        """
+                    }
                 }
             }
         }
@@ -322,11 +240,11 @@ pipeline {
         success {
             echo "🎉 Pipeline executado com sucesso!"
             
-            // Notificar sucesso (você pode integrar com Slack, Teams, etc.)
+            // Notificar sucesso
             sh """
                 echo "✅ Deployment Success - Build ${BUILD_NUMBER}" > success_notification.txt
-                echo "Application URL: http://\${CONTAINER_GROUP}.eastus.azurecontainer.io:8000" >> success_notification.txt
-                echo "Trivy Dashboard: ${TRIVY_SERVER_URL}" >> success_notification.txt
+                echo "Application URL: http://${CONTAINER_GROUP}.eastus.azurecontainer.io:8000" >> success_notification.txt
+                echo "ACR Image: ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}" >> success_notification.txt
             """
         }
         
@@ -337,17 +255,17 @@ pipeline {
             sh """
                 echo "❌ Deployment Failed - Build ${BUILD_NUMBER}" > failure_notification.txt
                 echo "Check logs for details" >> failure_notification.txt
+                echo "Last successful stage before failure" >> failure_notification.txt
             """
         }
         
         unstable {
-            echo "⚠️ Pipeline instável - verifique os alertas de segurança"
+            echo "⚠️ Pipeline instável - verifique os alertas"
             
             // Notificar instabilidade
             sh """
                 echo "⚠️ Deployment Unstable - Build ${BUILD_NUMBER}" > unstable_notification.txt
-                echo "Security warnings detected - check Trivy dashboard" >> unstable_notification.txt
-                echo "Trivy Dashboard: ${TRIVY_SERVER_URL}" >> unstable_notification.txt
+                echo "Pipeline completed with warnings" >> unstable_notification.txt
             """
         }
     }

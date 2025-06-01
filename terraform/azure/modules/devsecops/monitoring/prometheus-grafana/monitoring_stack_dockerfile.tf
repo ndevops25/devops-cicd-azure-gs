@@ -1,66 +1,74 @@
 # Grafana Monitoring Dashboard Module
 # Implementa Grafana com Prometheus integration para observabilidade completa
 
-# Dockerfile para stack completa (Grafana + Prometheus)
+# Criar o Dockerfile do monitoring stack com verificações
 resource "local_file" "monitoring_stack_dockerfile" {
   filename = "modules/devsecops/monitoring/prometheus-grafana/temp_build/Dockerfile"
   content  = <<-EOF
-# Grafana + Prometheus Monitoring Stack
-FROM grafana/grafana:10.2.0
+# Multi-stage build para otimizar tamanho
+FROM prom/prometheus:latest AS prometheus
+FROM grafana/grafana:latest
 
-# Mudar para usuário root temporariamente
+# Definir usuário como root para configurações
 USER root
 
-# Instalar dependências usando apk (Alpine Linux)
-RUN apk update && apk add --no-cache \
-    curl \
-    wget \
-    bash \
-    tar \
-    gzip
+# Instalar dependências necessárias
+RUN apt-get update && \
+    apt-get install -y curl procps && \
+    rm -rf /var/lib/apt/lists/*
 
-# Baixar e instalar Prometheus
-ENV PROMETHEUS_VERSION=2.45.0
-RUN wget https://github.com/prometheus/prometheus/releases/download/v$${PROMETHEUS_VERSION}/prometheus-$${PROMETHEUS_VERSION}.linux-amd64.tar.gz \
-    && tar -xzf prometheus-$${PROMETHEUS_VERSION}.linux-amd64.tar.gz \
-    && mv prometheus-$${PROMETHEUS_VERSION}.linux-amd64/prometheus /usr/local/bin/ \
-    && mv prometheus-$${PROMETHEUS_VERSION}.linux-amd64/promtool /usr/local/bin/ \
-    && rm -rf prometheus-$${PROMETHEUS_VERSION}.linux-amd64* \
-    && mkdir -p /etc/prometheus /var/lib/prometheus
+# Instalar Prometheus no container do Grafana
+COPY --from=prometheus /bin/prometheus /usr/local/bin/prometheus
+COPY --from=prometheus /etc/prometheus /etc/prometheus
 
-# Criar diretórios
-RUN mkdir -p /etc/grafana/provisioning/datasources \
+# Verificar e criar usuário grafana se não existir
+RUN id grafana || (groupadd -r grafana && useradd -r -g grafana grafana)
+
+# Criar diretórios necessários com permissões corretas
+RUN mkdir -p /var/lib/prometheus \
+    /etc/grafana/provisioning/datasources \
     /etc/grafana/provisioning/dashboards \
     /var/lib/grafana/dashboards \
-    /var/log/grafana \
-    /var/log/prometheus
+    /var/log/grafana && \
+    chown -R grafana:grafana /var/lib/prometheus \
+    /etc/grafana \
+    /var/lib/grafana \
+    /var/log/grafana && \
+    chmod -R 755 /var/lib/prometheus \
+    /etc/grafana/provisioning \
+    /var/lib/grafana
 
 # Copiar configurações
-COPY prometheus.yml /etc/prometheus/
-COPY grafana-datasources.yml /etc/grafana/provisioning/datasources/
-COPY grafana-dashboards.yml /etc/grafana/provisioning/dashboards/
-COPY start-monitoring.sh /usr/local/bin/
+COPY prometheus.yml /etc/prometheus/prometheus.yml
+COPY grafana-datasources.yml /etc/grafana/provisioning/datasources/datasources.yml
+COPY dashboard.json /var/lib/grafana/dashboards/dashboard.json
+COPY start-monitoring.sh /start-monitoring.sh
 
-# Ajustar permissões
-RUN chmod +x /usr/local/bin/start-monitoring.sh \
-    && chown -R grafana:root /etc/grafana /var/lib/grafana /var/log/grafana \
-    && chown -R root:root /etc/prometheus /var/lib/prometheus /var/log/prometheus
+# Configurar dashboards provisioning
+RUN echo 'apiVersion: 1' > /etc/grafana/provisioning/dashboards/dashboards.yml && \
+    echo 'providers:' >> /etc/grafana/provisioning/dashboards/dashboards.yml && \
+    echo '  - name: "default"' >> /etc/grafana/provisioning/dashboards/dashboards.yml && \
+    echo '    orgId: 1' >> /etc/grafana/provisioning/dashboards/dashboards.yml && \
+    echo '    folder: ""' >> /etc/grafana/provisioning/dashboards/dashboards.yml && \
+    echo '    type: file' >> /etc/grafana/provisioning/dashboards/dashboards.yml && \
+    echo '    disableDeletion: false' >> /etc/grafana/provisioning/dashboards/dashboards.yml && \
+    echo '    updateIntervalSeconds: 10' >> /etc/grafana/provisioning/dashboards/dashboards.yml && \
+    echo '    allowUiUpdates: true' >> /etc/grafana/provisioning/dashboards/dashboards.yml && \
+    echo '    options:' >> /etc/grafana/provisioning/dashboards/dashboards.yml && \
+    echo '      path: /var/lib/grafana/dashboards' >> /etc/grafana/provisioning/dashboards/dashboards.yml
 
-# Voltar para usuário grafana
-USER grafana
+# Dar permissões corretas aos arquivos
+RUN chmod +x /start-monitoring.sh && \
+    chown grafana:grafana /start-monitoring.sh \
+    /etc/prometheus/prometheus.yml \
+    /etc/grafana/provisioning/datasources/datasources.yml \
+    /var/lib/grafana/dashboards/dashboard.json \
+    /etc/grafana/provisioning/dashboards/dashboards.yml
 
 # Expor portas
 EXPOSE 3000 9090
 
-# Variáveis de ambiente (sem dados sensíveis)
-ENV GF_SECURITY_ADMIN_USER=admin
-ENV GF_PATHS_PROVISIONING=/etc/grafana/provisioning
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:3000/api/health || exit 1
-
-# Comando de inicialização
-CMD ["/usr/local/bin/start-monitoring.sh"]
+# Comando padrão
+CMD ["/start-monitoring.sh"]
 EOF
 }

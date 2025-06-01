@@ -22,7 +22,7 @@ COPY grafana.ini /etc/grafana/
 RUN mkdir -p /var/lib/grafana/dashboards
 
 # Configurar permissões
-RUN chown -R grafana:grafana /var/lib/grafana /etc/grafana
+RUN chown -R 472:472 /var/lib/grafana /etc/grafana
 
 # Voltar para usuário grafana
 USER grafana

@@ -143,33 +143,33 @@ module "owasp_zap_testing" {
 }
 
 # # Grafana Monitoring Stack
-module "grafana_monitoring" {
-  source              = "./modules/devsecops/monitoring/prometheus-grafana"
-  resource_group_name = module.resource_group.name
-  location            = var.location
-  prefix              = var.prefix
+# module "grafana_monitoring" {
+#   source              = "./modules/devsecops/monitoring/prometheus-grafana"
+#   resource_group_name = module.resource_group.name
+#   location            = var.location
+#   prefix              = var.prefix
   
-  # Integração com ACR
-  acr_login_server    = module.container_registry.login_server
-  acr_admin_username  = module.container_registry.admin_username
-  acr_admin_password  = module.container_registry.admin_password
-  acr_dependency      = module.container_registry
+#   # Integração com ACR
+#   acr_login_server    = module.container_registry.login_server
+#   acr_admin_username  = module.container_registry.admin_username
+#   acr_admin_password  = module.container_registry.admin_password
+#   acr_dependency      = module.container_registry
   
-  # Configurações específicas
-  grafana_admin_password = "GrafanaAdmin123!"  # Mude para uma senha segura
+#   # Configurações específicas
+#   grafana_admin_password = "GrafanaAdmin123!"  # Mude para uma senha segura
   
-  # Integração com outros serviços
-  trivy_dashboard_ip = module.trivy_security_scanner.trivy_dashboard_ip
-  zap_dashboard_ip   = module.owasp_zap_testing.zap_dashboard_ip
-  jenkins_vm_ip      = module.jenkins_pipeline_vm.private_ip_address
+#   # Integração com outros serviços
+#   trivy_dashboard_ip = module.trivy_security_scanner.trivy_dashboard_ip
+#   zap_dashboard_ip   = module.owasp_zap_testing.zap_dashboard_ip
+#   jenkins_vm_ip      = module.jenkins_pipeline_vm.private_ip_address
   
-  tags = merge(var.tags, {
-    Module      = "DevSecOps"
-    Component   = "Monitoring"
-    Tool        = "Grafana"
-    Environment = var.environment
-  })
-}
+#   tags = merge(var.tags, {
+#     Module      = "DevSecOps"
+#     Component   = "Monitoring"
+#     Tool        = "Grafana"
+#     Environment = var.environment
+#   })
+# }
 
 # ACI com imagem do ACR
 module "container_instances" {

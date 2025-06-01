@@ -51,3 +51,20 @@ output "monitoring_integration" {
     health_check    = "http://${azurerm_container_group.monitoring_stack.ip_address}:3000/api/health"
   }
 }
+
+output "monitoring_stack_info" {
+  value = {
+    acr_image_url = "${var.acr_login_server}/monitoring-stack:latest"
+    grafana_url   = "http://localhost:3000"
+    prometheus_url = "http://localhost:9090"
+    default_credentials = {
+      username = "admin"
+      password = "admin"
+    }
+    health_checks = {
+      grafana_health = "http://localhost:3000/api/health"
+      prometheus_health = "http://localhost:9090/-/healthy"
+    }
+  }
+  description = "Informações da stack de monitoramento"
+}
