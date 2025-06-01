@@ -2,9 +2,7 @@ pipeline {
     agent any
     
     environment {
-        // Configurações do Azure - pegue das credenciais do Jenkins
-        AZURE_SUBSCRIPTION = '7ffb36a8-96d2-4da6-ad22-e2751a217c90' // Sua subscription ID
-        
+        // Configurações do Azure - pegue das credenciais do Jenkins        
         // Configurações do ACR
         ACR_NAME = 'jenkinscidacr'
         ACR_LOGIN_SERVER = "${ACR_NAME}.azurecr.io"
@@ -21,17 +19,17 @@ pipeline {
         RESOURCE_GROUP = 'jenkins-cicd-rg'
         CONTAINER_GROUP = 'jenkins-cicd-container-group'
         
-        // Configurações do SonarQube e Trivy (opcional)
-        SONAR_SERVER = 'http://your-sonarqube-ip:9000'
+        // Configurações do SonarQube
+        SONAR_SERVER = 'http://52.179.3.47:9000'
         SONAR_PROJECT = 'service-app'
-        TRIVY_SERVER_URL = 'http://your-trivy-server:8080' // Configure conforme necessário
+        SONAR_TOKEN = credentials('sonarqube-token') // Adicione esta credencial no Jenkins
         
         // Configuração do workspace
         HOME = "${WORKSPACE}"
     }
     
     stages {
-        stage('Verify Azure Access') {
+        stage('🔍 Verify Azure Access') {
             steps {
                 echo "🔍 Verificando acesso ao Azure..."
                 withCredentials([
@@ -40,15 +38,87 @@ pipeline {
                     string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID'),
                     string(credentialsId: 'azure-subscription-id', variable: 'AZURE_SUBSCRIPTION_ID')
                 ]) {
+                    script {
+                        sh '''
+                            echo "Testing Azure CLI access..."
+                            docker run --rm \
+                              -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
+                              -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
+                              -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
+                              mcr.microsoft.com/azure-cli:latest \
+                              sh -c "az login --service-principal -u $AZURE_CLIENT_ID -p $AZURE_CLIENT_SECRET --tenant $AZURE_TENANT_ID && az account show"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('📋 Checkout & Prepare') {
+            steps {
+                echo "📋 Preparing workspace..."
+                script {
+                    // Verificar estrutura do projeto
                     sh '''
-                    echo "Testando acesso ao Azure usando Docker..."
-                    docker run --rm \
-                      -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
-                      -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
-                      -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
-                      -e AZURE_SUBSCRIPTION_ID=$AZURE_SUBSCRIPTION \
-                      mcr.microsoft.com/azure-cli:latest az account show
+                        echo "Current directory structure:"
+                        ls -la
+                        if [ -d "service-app" ]; then
+                            echo "service-app directory found"
+                            ls -la service-app/
+                        else
+                            echo "service-app directory not found, checking for Dockerfile in root"
+                            if [ -f "Dockerfile" ]; then
+                                echo "Dockerfile found in root directory"
+                            else
+                                echo "No Dockerfile found!"
+                                exit 1
+                            fi
+                        fi
                     '''
+                }
+            }
+        }
+        
+        stage('🔍 Code Quality Analysis - SonarQube') {
+            steps {
+                echo "🔍 Running SonarQube analysis..."
+                script {
+                    withSonarQubeEnv('SonarQube') { // Nome da configuração do SonarQube no Jenkins
+                        sh '''
+                            # Instalar sonar-scanner se não estiver disponível
+                            if ! command -v sonar-scanner &> /dev/null; then
+                                echo "Installing SonarQube Scanner..."
+                                wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856-linux.zip
+                                unzip -q sonar-scanner-cli-4.8.0.2856-linux.zip
+                                export PATH=$PATH:$(pwd)/sonar-scanner-4.8.0.2856-linux/bin
+                            fi
+                            
+                            # Executar análise SonarQube
+                            sonar-scanner \
+                              -Dsonar.projectKey=${SONAR_PROJECT} \
+                              -Dsonar.sources=. \
+                              -Dsonar.host.url=${SONAR_SERVER} \
+                              -Dsonar.login=${SONAR_TOKEN} \
+                              -Dsonar.projectName="Service App" \
+                              -Dsonar.projectVersion=${BUILD_NUMBER} \
+                              -Dsonar.exclusions="**/node_modules/**,**/target/**,**/*.zip,**/*.jar"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('📊 Quality Gate') {
+            steps {
+                echo "📊 Waiting for SonarQube Quality Gate..."
+                script {
+                    timeout(time: 5, unit: 'MINUTES') {
+                        def qg = waitForQualityGate()
+                        if (qg.status != 'OK') {
+                            error "Pipeline aborted due to quality gate failure: ${qg.status}"
+                        } else {
+                            echo "✅ Quality Gate passed!"
+                        }
+                    }
                 }
             }
         }
@@ -57,10 +127,22 @@ pipeline {
             steps {
                 echo "🏗️ Building Docker image..."
                 script {
-                    // Assumindo que o Dockerfile está no diretório service-app
-                    dir('service-app') {
+                    // Verificar se deve buildar do diretório service-app ou root
+                    def buildDir = fileExists('../../service-app/Dockerfile') ? 'service-app' : '.'
+                    
+                    if (buildDir == 'service-app') {
+                        dir('service-app') {
+                            sh """
+                                echo "Building image from service-app directory: ${APP_NAME}:${IMAGE_TAG}"
+                                docker build -t ${APP_NAME}:${IMAGE_TAG} .
+                                docker tag ${APP_NAME}:${IMAGE_TAG} ${APP_NAME}:latest
+                                docker tag ${APP_NAME}:${IMAGE_TAG} ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}
+                                docker tag ${APP_NAME}:${IMAGE_TAG} ${ACR_LOGIN_SERVER}/${APP_NAME}:latest
+                            """
+                        }
+                    } else {
                         sh """
-                            echo "Building image: ${APP_NAME}:${IMAGE_TAG}"
+                            echo "Building image from root directory: ${APP_NAME}:${IMAGE_TAG}"
                             docker build -t ${APP_NAME}:${IMAGE_TAG} .
                             docker tag ${APP_NAME}:${IMAGE_TAG} ${APP_NAME}:latest
                             docker tag ${APP_NAME}:${IMAGE_TAG} ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}
@@ -80,16 +162,18 @@ pipeline {
                     string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
                 ]) {
                     sh '''
-                    # Login no Azure usando service principal
-                    docker run --rm \
-                      -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
-                      -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
-                      -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
-                      mcr.microsoft.com/azure-cli:latest \
-                      az login --service-principal -u $AZURE_CLIENT_ID -p $AZURE_CLIENT_SECRET --tenant $AZURE_TENANT_ID
-                    
-                    # Login no ACR
-                    echo $AZURE_CLIENT_SECRET | docker login $ACR_LOGIN_SERVER -u $AZURE_CLIENT_ID --password-stdin
+                        echo "Logging into Azure CLI..."
+                        docker run --rm \
+                          -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
+                          -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
+                          -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
+                          mcr.microsoft.com/azure-cli:latest \
+                          az login --service-principal -u $AZURE_CLIENT_ID -p $AZURE_CLIENT_SECRET --tenant $AZURE_TENANT_ID
+                        
+                        echo "Logging into ACR..."
+                        echo $AZURE_CLIENT_SECRET | docker login $ACR_LOGIN_SERVER -u $AZURE_CLIENT_ID --password-stdin
+                        
+                        echo "✅ ACR login successful!"
                     '''
                 }
             }
@@ -99,8 +183,12 @@ pipeline {
             steps {
                 echo "📤 Pushing image to Azure Container Registry..."
                 sh """
+                    echo "Pushing ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}..."
                     docker push ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}
+                    
+                    echo "Pushing ${ACR_LOGIN_SERVER}/${APP_NAME}:latest..."
                     docker push ${ACR_LOGIN_SERVER}/${APP_NAME}:latest
+                    
                     echo "✅ Images pushed successfully!"
                 """
             }
@@ -115,23 +203,18 @@ pipeline {
                     string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
                 ]) {
                     script {
+                        // Primeiro, fazer login no Azure
+                        sh '''
+                            echo "Logging into Azure for deployment..."
+                            az login --service-principal -u $AZURE_CLIENT_ID -p $AZURE_CLIENT_SECRET --tenant $AZURE_TENANT_ID
+                            az account set --subscription $AZURE_SUBSCRIPTION
+                        '''
+                        
                         try {
+                            // Tentar criar novo container
                             sh """
-                                # Fazer login no Azure CLI
-                                docker run --rm \
-                                  -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
-                                  -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
-                                  -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
-                                  mcr.microsoft.com/azure-cli:latest \
-                                  az login --service-principal -u \$AZURE_CLIENT_ID -p \$AZURE_CLIENT_SECRET --tenant \$AZURE_TENANT_ID
-                                
-                                # Criar/atualizar container instance
-                                docker run --rm \
-                                  -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
-                                  -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
-                                  -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
-                                  mcr.microsoft.com/azure-cli:latest \
-                                  az container create \
+                                echo "Creating new container instance..."
+                                az container create \
                                     --resource-group ${RESOURCE_GROUP} \
                                     --name ${CONTAINER_GROUP} \
                                     --image ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG} \
@@ -141,33 +224,101 @@ pipeline {
                                     --protocol TCP \
                                     --restart-policy Always \
                                     --registry-login-server ${ACR_LOGIN_SERVER} \
-                                    --registry-username \$AZURE_CLIENT_ID \
-                                    --registry-password \$AZURE_CLIENT_SECRET \
+                                    --registry-username ${AZURE_CLIENT_ID} \
+                                    --registry-password ${AZURE_CLIENT_SECRET} \
                                     --ip-address Public \
                                     --dns-name-label ${CONTAINER_GROUP} \
                                     --environment-variables PYTHONUNBUFFERED=1 PORT=8000 ENV=production
                             """
                             
-                            echo "✅ Deployment completed successfully!"
+                            echo "✅ Container created successfully!"
                             
                         } catch (Exception e) {
-                            echo "⚠️ Container create failed, trying restart..."
+                            echo "⚠️ Container create failed, trying to delete and recreate..."
                             echo "Error: ${e.getMessage()}"
                             
-                            // Se create falhar, tentar restart
+                            // Deletar container existente e criar novo
                             sh """
-                                docker run --rm \
-                                  -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
-                                  -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
-                                  -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
-                                  mcr.microsoft.com/azure-cli:latest \
-                                  az container restart \
+                                echo "Deleting existing container..."
+                                az container delete \
                                     --resource-group ${RESOURCE_GROUP} \
-                                    --name ${CONTAINER_GROUP}
+                                    --name ${CONTAINER_GROUP} \
+                                    --yes || true
+                                
+                                sleep 30
+                                
+                                echo "Creating new container..."
+                                az container create \
+                                    --resource-group ${RESOURCE_GROUP} \
+                                    --name ${CONTAINER_GROUP} \
+                                    --image ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG} \
+                                    --cpu 0.5 \
+                                    --memory 1.0 \
+                                    --ports 8000 \
+                                    --protocol TCP \
+                                    --restart-policy Always \
+                                    --registry-login-server ${ACR_LOGIN_SERVER} \
+                                    --registry-username ${AZURE_CLIENT_ID} \
+                                    --registry-password ${AZURE_CLIENT_SECRET} \
+                                    --ip-address Public \
+                                    --dns-name-label ${CONTAINER_GROUP} \
+                                    --environment-variables PYTHONUNBUFFERED=1 PORT=8000 ENV=production
                             """
                             
-                            echo "🔄 Container restarted"
+                            echo "🔄 Container recreated successfully!"
                         }
+                    }
+                }
+            }
+        }
+        
+        stage('🔍 Health Check') {
+            steps {
+                echo "🔍 Performing health check..."
+                withCredentials([
+                    string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
+                    string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
+                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
+                ]) {
+                    script {
+                        sh '''
+                            echo "Checking container status..."
+                            az login --service-principal -u $AZURE_CLIENT_ID -p $AZURE_CLIENT_SECRET --tenant $AZURE_TENANT_ID
+                            
+                            # Verificar status do container
+                            CONTAINER_STATUS=$(az container show \
+                                --resource-group ${RESOURCE_GROUP} \
+                                --name ${CONTAINER_GROUP} \
+                                --query "instanceView.state" \
+                                --output tsv)
+                            
+                            echo "Container Status: $CONTAINER_STATUS"
+                            
+                            if [ "$CONTAINER_STATUS" = "Running" ]; then
+                                echo "✅ Container is running!"
+                                
+                                # Tentar fazer uma requisição HTTP
+                                sleep 30  # Aguardar container inicializar
+                                
+                                CONTAINER_IP=$(az container show \
+                                    --resource-group ${RESOURCE_GROUP} \
+                                    --name ${CONTAINER_GROUP} \
+                                    --query "ipAddress.ip" \
+                                    --output tsv)
+                                
+                                echo "Container IP: $CONTAINER_IP"
+                                echo "Application URL: http://${CONTAINER_GROUP}.eastus.azurecontainer.io:8000"
+                                
+                            else
+                                echo "⚠️ Container is not running. Status: $CONTAINER_STATUS"
+                                
+                                # Mostrar logs para debug
+                                echo "Container logs:"
+                                az container logs \
+                                    --resource-group ${RESOURCE_GROUP} \
+                                    --name ${CONTAINER_GROUP} || true
+                            fi
+                        '''
                     }
                 }
             }
@@ -182,40 +333,46 @@ pipeline {
                     string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
                 ]) {
                     script {
-                        sh """
+                        sh '''
+                            echo "Logging into Azure for reports..."
+                            az login --service-principal -u $AZURE_CLIENT_ID -p $AZURE_CLIENT_SECRET --tenant $AZURE_TENANT_ID
+                            
                             echo "=== DEPLOYMENT REPORT ===" > deployment_report.txt
                             echo "Build Number: ${BUILD_NUMBER}" >> deployment_report.txt
                             echo "Image: ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}" >> deployment_report.txt
-                            echo "Timestamp: \$(date)" >> deployment_report.txt
+                            echo "Timestamp: $(date)" >> deployment_report.txt
                             echo "Status: ${currentBuild.result ?: 'SUCCESS'}" >> deployment_report.txt
                             echo "" >> deployment_report.txt
                             
                             # Status do container
                             echo "=== CONTAINER STATUS ===" >> deployment_report.txt
-                            docker run --rm \
-                              -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
-                              -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
-                              -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
-                              mcr.microsoft.com/azure-cli:latest \
-                              az container show \
+                            az container show \
                                 --resource-group ${RESOURCE_GROUP} \
                                 --name ${CONTAINER_GROUP} \
                                 --query "instanceView.state" \
                                 --output tsv >> deployment_report.txt 2>/dev/null || echo "Status check failed" >> deployment_report.txt
                             
-                            # Logs do container (últimas 10 linhas)
+                            # URL da aplicação
                             echo "" >> deployment_report.txt
-                            echo "=== CONTAINER LOGS (last 10 lines) ===" >> deployment_report.txt
-                            docker run --rm \
-                              -e AZURE_TENANT_ID=$AZURE_TENANT_ID \
-                              -e AZURE_CLIENT_ID=$AZURE_CLIENT_ID \
-                              -e AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET \
-                              mcr.microsoft.com/azure-cli:latest \
-                              az container logs \
+                            echo "=== APPLICATION URLs ===" >> deployment_report.txt
+                            echo "Public URL: http://${CONTAINER_GROUP}.eastus.azurecontainer.io:8000" >> deployment_report.txt
+                            
+                            # IP do container
+                            CONTAINER_IP=$(az container show \
                                 --resource-group ${RESOURCE_GROUP} \
                                 --name ${CONTAINER_GROUP} \
-                                --tail 10 >> deployment_report.txt 2>/dev/null || echo "Logs not available" >> deployment_report.txt
-                        """
+                                --query "ipAddress.ip" \
+                                --output tsv 2>/dev/null || echo "IP not available")
+                            echo "Container IP: $CONTAINER_IP" >> deployment_report.txt
+                            
+                            # Logs do container (últimas 20 linhas)
+                            echo "" >> deployment_report.txt
+                            echo "=== CONTAINER LOGS (last 20 lines) ===" >> deployment_report.txt
+                            az container logs \
+                                --resource-group ${RESOURCE_GROUP} \
+                                --name ${CONTAINER_GROUP} \
+                                --tail 20 >> deployment_report.txt 2>/dev/null || echo "Logs not available" >> deployment_report.txt
+                        '''
                     }
                 }
             }
@@ -227,13 +384,24 @@ pipeline {
             echo "🧹 Cleaning up..."
             
             // Arquivar artefatos
-            archiveArtifacts artifacts: '*.json, *.txt', allowEmptyArchive: true
+            archiveArtifacts artifacts: '*.json, *.txt, **/target/sonar/report-task.txt', allowEmptyArchive: true
+            
+            // Publicar resultados do SonarQube
+            publishHTML([
+                allowMissing: false,
+                alwaysLinkToLastBuild: true,
+                keepAll: true,
+                reportDir: 'sonar-reports',
+                reportFiles: 'index.html',
+                reportName: 'SonarQube Report'
+            ])
             
             // Limpar imagens locais para economizar espaço
             sh """
                 docker rmi ${APP_NAME}:${IMAGE_TAG} || true
                 docker rmi ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG} || true
                 docker rmi ${ACR_LOGIN_SERVER}/${APP_NAME}:latest || true
+                docker system prune -f || true
             """
         }
         
@@ -245,6 +413,7 @@ pipeline {
                 echo "✅ Deployment Success - Build ${BUILD_NUMBER}" > success_notification.txt
                 echo "Application URL: http://${CONTAINER_GROUP}.eastus.azurecontainer.io:8000" >> success_notification.txt
                 echo "ACR Image: ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}" >> success_notification.txt
+                echo "SonarQube: ${SONAR_SERVER}/dashboard?id=${SONAR_PROJECT}" >> success_notification.txt
             """
         }
         
@@ -255,7 +424,7 @@ pipeline {
             sh """
                 echo "❌ Deployment Failed - Build ${BUILD_NUMBER}" > failure_notification.txt
                 echo "Check logs for details" >> failure_notification.txt
-                echo "Last successful stage before failure" >> failure_notification.txt
+                echo "Build failed at stage: ${env.STAGE_NAME}" >> failure_notification.txt
             """
         }
         
@@ -266,6 +435,7 @@ pipeline {
             sh """
                 echo "⚠️ Deployment Unstable - Build ${BUILD_NUMBER}" > unstable_notification.txt
                 echo "Pipeline completed with warnings" >> unstable_notification.txt
+                echo "Check SonarQube quality gate results" >> unstable_notification.txt
             """
         }
     }
