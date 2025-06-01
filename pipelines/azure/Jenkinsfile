@@ -4,7 +4,7 @@ pipeline {
     environment {
         // Configurações do ACR
         ACR_NAME = 'jenkinscidacr'
-        ACR_LOGIN_SERVER = "${ACR_NAME}.azurecr.io"
+        ACR_LOGIN_SERVER = "jenkinscicrdacr.azurecr.io"
         
         // Configurações da aplicação
         APP_NAME = 'service-app'
@@ -217,14 +217,22 @@ pipeline {
                     sh '''
                         echo "Logging into Azure CLI..."
                         docker run --rm \
-                          -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                          -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                          -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                          mcr.microsoft.com/azure-cli:latest \
-                          az login --service-principal -u "${AZURE_CLIENT_ID}" -p "${AZURE_CLIENT_SECRET}" --tenant "${AZURE_TENANT_ID}"
+                        -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
+                        -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
+                        -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
+                        mcr.microsoft.com/azure-cli:latest \
+                        az login --service-principal -u "${AZURE_CLIENT_ID}" -p "${AZURE_CLIENT_SECRET}" --tenant "${AZURE_TENANT_ID}"
+                        
+                        echo "Getting ACR access token..."
+                        ACR_TOKEN=$(docker run --rm \
+                        -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
+                        -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
+                        -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
+                        mcr.microsoft.com/azure-cli:latest \
+                        sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr login --name jenkinscicrdacr --expose-token --output tsv --query accessToken")
                         
                         echo "Logging into ACR..."
-                        echo "${AZURE_CLIENT_SECRET}" | docker login "${ACR_LOGIN_SERVER}" -u "${AZURE_CLIENT_ID}" --password-stdin
+                        echo "${ACR_TOKEN}" | docker login jenkinscicrdacr.azurecr.io -u 00000000-0000-0000-0000-000000000000 --password-stdin
                         
                         echo "✅ ACR login successful!"
                     '''
