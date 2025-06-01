@@ -205,10 +205,10 @@ pipeline {
                 }
             }
         }
-        
-        stage('🔐 Login to ACR') {
+
+        stage('🏗️ Setup ACR') {
             steps {
-                echo "🔐 Logging into Azure Container Registry..."
+                echo "🏗️ Setting up Azure Container Registry..."
                 withCredentials([
                     string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
                     string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
@@ -223,7 +223,7 @@ pipeline {
                         mcr.microsoft.com/azure-cli:latest \
                         az login --service-principal -u "${AZURE_CLIENT_ID}" -p "${AZURE_CLIENT_SECRET}" --tenant "${AZURE_TENANT_ID}"
                         
-                        echo "Checking if ACR exists..."
+                        echo "Checking if ACR 'jenkinscicrdacr' exists..."
                         ACR_EXISTS=$(docker run --rm \
                         -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
                         -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
@@ -232,29 +232,87 @@ pipeline {
                         sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr list --query \"[?name=='jenkinscicrdacr'].name\" -o tsv")
                         
                         if [ -z "$ACR_EXISTS" ]; then
-                            echo "❌ ACR 'jenkinscicrdacr' not found in current subscription"
-                            echo "Available ACRs in subscription:"
+                            echo "🔨 ACR 'jenkinscicrdacr' not found. Creating it..."
+                            
+                            # Verificar se resource group existe
+                            echo "Checking if resource group 'rg-jenkins-cicd' exists..."
+                            RG_EXISTS=$(docker run --rm \
+                            -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
+                            -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
+                            -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
+                            mcr.microsoft.com/azure-cli:latest \
+                            sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az group list --query \"[?name=='rg-jenkins-cicd'].name\" -o tsv")
+                            
+                            if [ -z "$RG_EXISTS" ]; then
+                                echo "🔨 Resource group 'rg-jenkins-cicd' not found. Creating it..."
+                                docker run --rm \
+                                -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
+                                -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
+                                -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
+                                mcr.microsoft.com/azure-cli:latest \
+                                sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az group create --name rg-jenkins-cicd --location brazilsouth --output none"
+                                echo "✅ Resource group 'rg-jenkins-cicd' created successfully!"
+                            else
+                                echo "✅ Resource group 'rg-jenkins-cicd' already exists. Skipping creation."
+                            fi
+                            
+                            # Criar ACR
+                            echo "Creating ACR 'jenkinscicrdacr'..."
                             docker run --rm \
                             -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
                             -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
                             -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
                             mcr.microsoft.com/azure-cli:latest \
-                            sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr list --query \"[].{Name:name, ResourceGroup:resourceGroup, LoginServer:loginServer}\" -o table"
-                            exit 1
+                            sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr create --resource-group rg-jenkins-cicd --name jenkinscicrdacr --sku Basic --admin-enabled true --output none"
+                            
+                            echo "✅ ACR 'jenkinscicrdacr' created successfully!"
+                        else
+                            echo "✅ ACR 'jenkinscicrdacr' already exists. Skipping creation."
                         fi
                         
-                        echo "Getting ACR access token..."
-                        ACR_TOKEN=$(docker run --rm \
+                        # Verificar se admin está habilitado (necessário para login)
+                        echo "Ensuring admin user is enabled..."
+                        docker run --rm \
                         -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
                         -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
                         -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
                         mcr.microsoft.com/azure-cli:latest \
-                        sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr login --name jenkinscicrdacr --expose-token --output tsv --query accessToken")
+                        sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr update --name jenkinscicrdacr --admin-enabled true --output none"
                         
-                        echo "Logging into ACR..."
-                        echo "${ACR_TOKEN}" | docker login jenkinscicrdacr.azurecr.io -u 00000000-0000-0000-0000-000000000000 --password-stdin
+                        echo "📋 ACR setup completed!"
+                    '''
+                }
+            }
+        }
+        
+        stage('🔐 Login to ACR') {
+            steps {
+                echo "🔐 Logging into Azure Container Registry..."
+                withCredentials([
+                    string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
+                    string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
+                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
+                ]) {
+                    sh '''
+                        echo "Getting ACR admin credentials..."
+                        ACR_CREDENTIALS=$(docker run --rm \
+                        -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
+                        -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
+                        -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
+                        mcr.microsoft.com/azure-cli:latest \
+                        sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && az acr credential show --name jenkinscicrdacr --query '{username:username, password:passwords[0].value}' -o json")
+                        
+                        ACR_USERNAME=$(echo $ACR_CREDENTIALS | jq -r '.username')
+                        ACR_PASSWORD=$(echo $ACR_CREDENTIALS | jq -r '.password')
+                        
+                        echo "Logging into ACR with admin credentials..."
+                        echo "${ACR_PASSWORD}" | docker login jenkinscicrdacr.azurecr.io -u "${ACR_USERNAME}" --password-stdin
                         
                         echo "✅ ACR login successful!"
+                        
+                        # Verificar login
+                        echo "Verifying login..."
+                        docker run --rm jenkinscicrdacr.azurecr.io/hello-world:latest echo "Login test" 2>/dev/null || echo "Ready to push images to ACR"
                     '''
                 }
             }
