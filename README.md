@@ -45,7 +45,7 @@ Este projeto implementa um pipeline completo de CI/CD usando Jenkins para uma ap
 
 -   Jenkins: <http://52.179.0.47:8080/>
     - Login: admin
-    - Senha: admin
+    - Senha: Fiap123
 
 -   SonarQube: <http://52.179.3.47:9000/>
     - Login: thunderbolts
