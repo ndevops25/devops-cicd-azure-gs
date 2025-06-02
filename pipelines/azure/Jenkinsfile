@@ -3,8 +3,8 @@ pipeline {
     
     environment {
         // Configurações do ACR
-        ACR_NAME = 'jenkinscicdacr'
-        ACR_LOGIN_SERVER = "jenkinscicrdacr.azurecr.io"
+        ACR_NAME = 'jenkinscidacr'
+        ACR_LOGIN_SERVER = "${ACR_NAME}.azurecr.io"
         
         // Configurações da aplicação
         APP_NAME = 'service-app'
@@ -43,123 +43,9 @@ pipeline {
                               -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
                               -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
                               -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                              -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
                               mcr.microsoft.com/azure-cli:latest \
-                              sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && az account set --subscription ${AZURE_SUBSCRIPTION_ID} && az account show"
+                              sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && az account show"
                         '''
-                    }
-                }
-            }
-        }
-        
-        stage('🏗️ Verify/Create Resource Group') {
-            steps {
-                echo "🏗️ Verificando e criando Resource Group se necessário..."
-                withCredentials([
-                    string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
-                    string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
-                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID'),
-                    string(credentialsId: 'azure-subscription-id', variable: 'AZURE_SUBSCRIPTION_ID')
-                ]) {
-                    script {
-                        def rgExists = sh(
-                            script: """
-                                docker run --rm \
-                                  -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                                  -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                                  -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                                  -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                                  mcr.microsoft.com/azure-cli:latest \
-                                  sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && \
-                                         az account set --subscription ${AZURE_SUBSCRIPTION_ID} && \
-                                         az group exists --name ${RESOURCE_GROUP}"
-                            """,
-                            returnStdout: true
-                        ).trim()
-                        
-                        if (rgExists == 'true') {
-                            echo "✅ Resource Group '${RESOURCE_GROUP}' já existe!"
-                        } else {
-                            echo "⚠️ Resource Group '${RESOURCE_GROUP}' não existe. Criando..."
-                            sh """
-                                docker run --rm \
-                                  -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                                  -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                                  -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                                  -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                                  mcr.microsoft.com/azure-cli:latest \
-                                  sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && \
-                                         az account set --subscription ${AZURE_SUBSCRIPTION_ID} && \
-                                         az group create --name ${RESOURCE_GROUP} --location ${ACR_LOCATION}"
-                            """
-                            echo "✅ Resource Group '${RESOURCE_GROUP}' criado com sucesso!"
-                        }
-                    }
-                }
-            }
-        }
-        
-        stage('🐳 Verify/Create ACR') {
-            steps {
-                echo "🐳 Verificando e criando Azure Container Registry se necessário..."
-                withCredentials([
-                    string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
-                    string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
-                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID'),
-                    string(credentialsId: 'azure-subscription-id', variable: 'AZURE_SUBSCRIPTION_ID')
-                ]) {
-                    script {
-                        def acrCheckResult = sh(
-                            script: """
-                                docker run --rm \
-                                  -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                                  -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                                  -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                                  -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                                  mcr.microsoft.com/azure-cli:latest \
-                                  sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && \
-                                         az account set --subscription ${AZURE_SUBSCRIPTION_ID} && \
-                                         az acr show --name ${ACR_NAME} --resource-group ${RESOURCE_GROUP} --query 'name' --output tsv 2>/dev/null || echo 'NOT_FOUND'"
-                            """,
-                            returnStdout: true
-                        ).trim()
-                        
-                        if (acrCheckResult == ACR_NAME) {
-                            echo "✅ ACR '${ACR_NAME}' já existe no Resource Group '${RESOURCE_GROUP}'!"
-                        } else if (acrCheckResult == 'NOT_FOUND') {
-                            echo "⚠️ ACR '${ACR_NAME}' não existe. Criando..."
-                            sh """
-                                docker run --rm \
-                                  -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                                  -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                                  -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                                  -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                                  mcr.microsoft.com/azure-cli:latest \
-                                  sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && \
-                                         az account set --subscription ${AZURE_SUBSCRIPTION_ID} && \
-                                         az acr create --name ${ACR_NAME} --resource-group ${RESOURCE_GROUP} --sku Basic --admin-enabled true --location ${ACR_LOCATION}"
-                            """
-                            echo "✅ ACR '${ACR_NAME}' criado com sucesso!"
-                            
-                            // Aguardar um pouco para o ACR ficar totalmente disponível
-                            sleep(30)
-                        } else {
-                            error "❌ Erro inesperado ao verificar ACR: ${acrCheckResult}"
-                        }
-                        
-                        // Verificar se o ACR está funcionando
-                        echo "🔍 Verificando status do ACR..."
-                        sh """
-                            docker run --rm \
-                              -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                              -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                              -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                              -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                              mcr.microsoft.com/azure-cli:latest \
-                              sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && \
-                                     az account set --subscription ${AZURE_SUBSCRIPTION_ID} && \
-                                     az acr show --name ${ACR_NAME} --resource-group ${RESOURCE_GROUP} --query '{name:name,loginServer:loginServer,provisioningState:provisioningState}' --output table"
-                        """
                     }
                 }
             }
@@ -326,32 +212,19 @@ pipeline {
                 withCredentials([
                     string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
                     string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
-                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID'),
-                    string(credentialsId: 'azure-subscription-id', variable: 'AZURE_SUBSCRIPTION_ID')
+                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
                 ]) {
                     sh '''
                         echo "Logging into Azure CLI..."
                         docker run --rm \
-                        -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                        -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                        -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                        -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                        mcr.microsoft.com/azure-cli:latest \
-                        sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && az account set --subscription ${AZURE_SUBSCRIPTION_ID}"
-                        
-                        echo "Getting ACR access token..."
-                        ACR_TOKEN=$(docker run --rm \
-                        -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                        -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                        -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                        -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                        mcr.microsoft.com/azure-cli:latest \
-                        sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} > /dev/null && \
-                               az account set --subscription ${AZURE_SUBSCRIPTION_ID} && \
-                               az acr login --name ${ACR_NAME} --expose-token --output tsv --query accessToken")
+                          -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
+                          -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
+                          -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
+                          mcr.microsoft.com/azure-cli:latest \
+                          az login --service-principal -u "${AZURE_CLIENT_ID}" -p "${AZURE_CLIENT_SECRET}" --tenant "${AZURE_TENANT_ID}"
                         
                         echo "Logging into ACR..."
-                        echo "${ACR_TOKEN}" | docker login ${ACR_LOGIN_SERVER} -u 00000000-0000-0000-0000-000000000000 --password-stdin
+                        echo "${AZURE_CLIENT_SECRET}" | docker login "${ACR_LOGIN_SERVER}" -u "${AZURE_CLIENT_ID}" --password-stdin
                         
                         echo "✅ ACR login successful!"
                     '''
@@ -373,97 +246,6 @@ pipeline {
                 """
             }
         }
-
-        stage('🏃 Verify/Prepare ACI') {
-            steps {
-                echo "🏃 Verificando e preparando Azure Container Instances..."
-                withCredentials([
-                    string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
-                    string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
-                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID'),
-                    string(credentialsId: 'azure-subscription-id', variable: 'AZURE_SUBSCRIPTION_ID')
-                ]) {
-                    script {
-                        // Verificar se já existe um container com o mesmo nome
-                        def aciCheckResult = sh(
-                            script: """
-                                docker run --rm \
-                                  -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                                  -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                                  -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                                  -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                                  mcr.microsoft.com/azure-cli:latest \
-                                  sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && \
-                                         az account set --subscription ${AZURE_SUBSCRIPTION_ID} && \
-                                         az container show --name ${CONTAINER_GROUP} --resource-group ${RESOURCE_GROUP} --query 'name' --output tsv 2>/dev/null || echo 'NOT_FOUND'"
-                            """,
-                            returnStdout: true
-                        ).trim()
-                        
-                        if (aciCheckResult == CONTAINER_GROUP) {
-                            echo "⚠️ Container Instance '${CONTAINER_GROUP}' já existe. Será atualizado com nova imagem."
-                            
-                            // Verificar status atual do container
-                            def containerStatus = sh(
-                                script: """
-                                    docker run --rm \
-                                      -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                                      -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                                      -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                                      -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                                      mcr.microsoft.com/azure-cli:latest \
-                                      sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && \
-                                             az account set --subscription ${AZURE_SUBSCRIPTION_ID} && \
-                                             az container show --name ${CONTAINER_GROUP} --resource-group ${RESOURCE_GROUP} --query 'instanceView.state' --output tsv"
-                                """,
-                                returnStdout: true
-                            ).trim()
-                            
-                            echo "Status atual do container: ${containerStatus}"
-                            
-                            // Parar o container existente para atualização
-                            if (containerStatus == "Running") {
-                                echo "🛑 Parando container existente para atualização..."
-                                sh """
-                                    docker run --rm \
-                                      -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                                      -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                                      -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                                      -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                                      mcr.microsoft.com/azure-cli:latest \
-                                      sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && \
-                                             az account set --subscription ${AZURE_SUBSCRIPTION_ID} && \
-                                             az container stop --name ${CONTAINER_GROUP} --resource-group ${RESOURCE_GROUP}"
-                                """
-                                sleep(15)
-                            }
-                            
-                            // Deletar o container existente
-                            echo "🗑️ Removendo container existente..."
-                            sh """
-                                docker run --rm \
-                                  -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                                  -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                                  -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                                  -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                                  mcr.microsoft.com/azure-cli:latest \
-                                  sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && \
-                                         az account set --subscription ${AZURE_SUBSCRIPTION_ID} && \
-                                         az container delete --name ${CONTAINER_GROUP} --resource-group ${RESOURCE_GROUP} --yes"
-                            """
-                            
-                            echo "✅ Container existente removido. Pronto para criar novo container."
-                            sleep(30) // Aguardar limpeza completa
-                            
-                        } else if (aciCheckResult == 'NOT_FOUND') {
-                            echo "✅ Nenhum Container Instance existente encontrado. Pronto para criar novo container."
-                        } else {
-                            echo "⚠️ Resultado inesperado na verificação do ACI: ${aciCheckResult}"
-                        }
-                    }
-                }
-            }
-        }
         
         stage('🚀 Deploy to ACI') {
             steps {
@@ -477,13 +259,8 @@ pipeline {
                     script {
                         sh '''
                             echo "Logging into Azure for deployment..."
-                            docker run --rm \
-                              -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                              -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                              -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                              -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                              mcr.microsoft.com/azure-cli:latest \
-                              sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && az account set --subscription ${AZURE_SUBSCRIPTION_ID}"
+                            az login --service-principal -u "${AZURE_CLIENT_ID}" -p "${AZURE_CLIENT_SECRET}" --tenant "${AZURE_TENANT_ID}"
+                            az account set --subscription "${AZURE_SUBSCRIPTION_ID}"
                         '''
                         
                         // Tentar criar container com tratamento de erro melhorado
@@ -491,29 +268,21 @@ pipeline {
                             def deployResult = sh(
                                 script: """
                                     echo "Creating new container instance..."
-                                    docker run --rm \
-                                      -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                                      -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                                      -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                                      -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                                      mcr.microsoft.com/azure-cli:latest \
-                                      sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && \
-                                             az account set --subscription ${AZURE_SUBSCRIPTION_ID} && \
-                                             az container create \
-                                                 --resource-group ${RESOURCE_GROUP} \
-                                                 --name ${CONTAINER_GROUP} \
-                                                 --image ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG} \
-                                                 --cpu 0.5 \
-                                                 --memory 1.0 \
-                                                 --ports 8000 \
-                                                 --protocol TCP \
-                                                 --restart-policy Always \
-                                                 --registry-login-server ${ACR_LOGIN_SERVER} \
-                                                 --registry-username ${AZURE_CLIENT_ID} \
-                                                 --registry-password ${AZURE_CLIENT_SECRET} \
-                                                 --ip-address Public \
-                                                 --dns-name-label ${CONTAINER_GROUP} \
-                                                 --environment-variables PYTHONUNBUFFERED=1 PORT=8000 ENV=production"
+                                    az container create \
+                                        --resource-group ${RESOURCE_GROUP} \
+                                        --name ${CONTAINER_GROUP} \
+                                        --image ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG} \
+                                        --cpu 0.5 \
+                                        --memory 1.0 \
+                                        --ports 8000 \
+                                        --protocol TCP \
+                                        --restart-policy Always \
+                                        --registry-login-server ${ACR_LOGIN_SERVER} \
+                                        --registry-username ${AZURE_CLIENT_ID} \
+                                        --registry-password ${AZURE_CLIENT_SECRET} \
+                                        --ip-address Public \
+                                        --dns-name-label ${CONTAINER_GROUP} \
+                                        --environment-variables PYTHONUNBUFFERED=1 PORT=8000 ENV=production
                                 """,
                                 returnStatus: true
                             )
@@ -522,42 +291,29 @@ pipeline {
                                 echo "⚠️ Container create failed, trying to delete and recreate..."
                                 sh """
                                     echo "Deleting existing container..."
-                                    docker run --rm \
-                                      -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                                      -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                                      -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                                      -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                                      mcr.microsoft.com/azure-cli:latest \
-                                      sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && \
-                                             az account set --subscription ${AZURE_SUBSCRIPTION_ID} && \
-                                             az container delete --resource-group ${RESOURCE_GROUP} --name ${CONTAINER_GROUP} --yes" || true
+                                    az container delete \
+                                        --resource-group ${RESOURCE_GROUP} \
+                                        --name ${CONTAINER_GROUP} \
+                                        --yes || true
                                     
                                     sleep 30
                                     
                                     echo "Creating new container..."
-                                    docker run --rm \
-                                      -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                                      -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                                      -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                                      -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                                      mcr.microsoft.com/azure-cli:latest \
-                                      sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && \
-                                             az account set --subscription ${AZURE_SUBSCRIPTION_ID} && \
-                                             az container create \
-                                                 --resource-group ${RESOURCE_GROUP} \
-                                                 --name ${CONTAINER_GROUP} \
-                                                 --image ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG} \
-                                                 --cpu 0.5 \
-                                                 --memory 1.0 \
-                                                 --ports 8000 \
-                                                 --protocol TCP \
-                                                 --restart-policy Always \
-                                                 --registry-login-server ${ACR_LOGIN_SERVER} \
-                                                 --registry-username ${AZURE_CLIENT_ID} \
-                                                 --registry-password ${AZURE_CLIENT_SECRET} \
-                                                 --ip-address Public \
-                                                 --dns-name-label ${CONTAINER_GROUP} \
-                                                 --environment-variables PYTHONUNBUFFERED=1 PORT=8000 ENV=production"
+                                    az container create \
+                                        --resource-group ${RESOURCE_GROUP} \
+                                        --name ${CONTAINER_GROUP} \
+                                        --image ${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG} \
+                                        --cpu 0.5 \
+                                        --memory 1.0 \
+                                        --ports 8000 \
+                                        --protocol TCP \
+                                        --restart-policy Always \
+                                        --registry-login-server ${ACR_LOGIN_SERVER} \
+                                        --registry-username ${AZURE_CLIENT_ID} \
+                                        --registry-password ${AZURE_CLIENT_SECRET} \
+                                        --ip-address Public \
+                                        --dns-name-label ${CONTAINER_GROUP} \
+                                        --environment-variables PYTHONUNBUFFERED=1 PORT=8000 ENV=production
                                 """
                                 echo "🔄 Container recreated successfully!"
                             } else {
@@ -575,23 +331,19 @@ pipeline {
                 withCredentials([
                     string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
                     string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
-                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID'),
-                    string(credentialsId: 'azure-subscription-id', variable: 'AZURE_SUBSCRIPTION_ID')
+                    string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID')
                 ]) {
                     script {
                         sh '''
                             echo "Checking container status..."
+                            az login --service-principal -u "${AZURE_CLIENT_ID}" -p "${AZURE_CLIENT_SECRET}" --tenant "${AZURE_TENANT_ID}"
                             
                             # Verificar status do container
-                            CONTAINER_STATUS=$(docker run --rm \
-                              -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                              -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                              -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                              -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                              mcr.microsoft.com/azure-cli:latest \
-                              sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && \
-                                     az account set --subscription ${AZURE_SUBSCRIPTION_ID} && \
-                                     az container show --resource-group ${RESOURCE_GROUP} --name ${CONTAINER_GROUP} --query 'instanceView.state' --output tsv")
+                            CONTAINER_STATUS=$(az container show \
+                                --resource-group ${RESOURCE_GROUP} \
+                                --name ${CONTAINER_GROUP} \
+                                --query "instanceView.state" \
+                                --output tsv)
                             
                             echo "Container Status: ${CONTAINER_STATUS}"
                             
@@ -602,15 +354,11 @@ pipeline {
                                 sleep 30
                                 
                                 # Obter IP do container
-                                CONTAINER_IP=$(docker run --rm \
-                                  -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                                  -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                                  -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                                  -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                                  mcr.microsoft.com/azure-cli:latest \
-                                  sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && \
-                                         az account set --subscription ${AZURE_SUBSCRIPTION_ID} && \
-                                         az container show --resource-group ${RESOURCE_GROUP} --name ${CONTAINER_GROUP} --query 'ipAddress.ip' --output tsv")
+                                CONTAINER_IP=$(az container show \
+                                    --resource-group ${RESOURCE_GROUP} \
+                                    --name ${CONTAINER_GROUP} \
+                                    --query "ipAddress.ip" \
+                                    --output tsv)
                                 
                                 echo "Container IP: ${CONTAINER_IP}"
                                 echo "Application URL: http://${CONTAINER_GROUP}.eastus.azurecontainer.io:8000"
@@ -620,15 +368,9 @@ pipeline {
                                 
                                 # Mostrar logs para debug
                                 echo "Container logs:"
-                                docker run --rm \
-                                  -e AZURE_TENANT_ID="${AZURE_TENANT_ID}" \
-                                  -e AZURE_CLIENT_ID="${AZURE_CLIENT_ID}" \
-                                  -e AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}" \
-                                  -e AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}" \
-                                  mcr.microsoft.com/azure-cli:latest \
-                                  sh -c "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID} && \
-                                         az account set --subscription ${AZURE_SUBSCRIPTION_ID} && \
-                                         az container logs --resource-group ${RESOURCE_GROUP} --name ${CONTAINER_GROUP}" || true
+                                az container logs \
+                                    --resource-group ${RESOURCE_GROUP} \
+                                    --name ${CONTAINER_GROUP} || true
                             fi
                         '''
                     }
