@@ -44,7 +44,12 @@ Este projeto implementa um pipeline completo de CI/CD usando Jenkins para uma ap
 -   **ALB**: Load Balancer para distribuição de tráfego
 
 -   Jenkins: <http://52.179.0.47:8080/>
+    - Login: admin
+    - Senha: Fiap123
+
 -   SonarQube: <http://52.179.3.47:9000/>
+    - Login: thunderbolts
+    - Senha: Fiap123
 
 **🚀 Parte em desenvolvimento - DevSecOps completo:**
 --------------------------------------------
@@ -84,101 +89,141 @@ Este projeto implementa um pipeline completo de CI/CD usando Jenkins para uma ap
 ==================================
 
 ```
-DEVSECOPS-AWS/
-├── docs/                                    # Documentação do projeto
-│   ├── architecture/                        # Documentação da arquitetura
-│   └── images/                             # Imagens e diagramas
-├── pipelines/aws/                          # Pipelines de CI/CD para AWS
-│   └── Jenkinsfile                         # Pipeline Jenkins principal
-├── sample-app/                             # Aplicação de exemplo
-│   ├── .gitignore                          # Arquivos ignorados pelo Git
-│   ├── app.py                              # Aplicação Flask Python
-│   ├── Dockerfile                          # Imagem Docker da aplicação
-│   ├── Jenkinsfile                         # Pipeline Jenkins da aplicação
-│   ├── requirements.txt                    # Dependências Python
-│   ├── sonar-project.properties            # Configuração do SonarQube
-│   └── test_app.py                         # Testes unitários da aplicação
-├── scripts/                                # Scripts auxiliares
-├── terraform/aws/                          # Infraestrutura como Código
+# Estrutura do Projeto DEVSECOPS-CICD-AZURE-GS
+
+DEVSECOPS-CICD-AZURE-GS/
+├── docs/                                   # Documentação do projeto
+│   ├── images/                             # Imagens e diagramas
+│   │   └── architecture/                   # Arquitetura
+│   │       └── layered-architecture.png    # Imagem da arquitetura em camadas
+│   └── steps/                              # Passos e configurações
+│       ├── jenkins/                        # Configuração do Jenkins
+│       │   ├── installation/               # Instalação do Jenkins
+│       │   │   ├── jenkins-initial-setup.png  # Configuração inicial do Jenkins
+│       │   │   └── verify-jenkins-credentials.png # Verificação de credenciais Jenkins
+│       │   └── pipeline-config/            # Configuração de pipelines
+│       │       ├── azure-credentials-config/ # Configuração de credenciais Azure
+│       │       │   ├── all-azure-credentials.png # Todas as credenciais Azure
+│       │       │   ├── azure-client-id.png # ID do cliente Azure
+│       │       │   ├── azure-client-secret.png # Segredo do cliente Azure
+│       │       │   ├── azure-subscription-id.png # ID da assinatura Azure
+│       │       │   └── azure-tenant-id.png # ID do tenant Azure
+│       │       ├── general-pipeline-config.png # Configuração geral do pipeline
+│       │       ├── github-credentials-config.png # Configuração de credenciais GitHub
+│       │       ├── github-webhook.png      # Configuração de webhook GitHub
+│       │       ├── pipeline-initial-config.png # Configuração inicial do pipeline
+│       │       ├── pipeline1.png           # Pipeline 1
+│       │       ├── pipeline2.png           # Pipeline 2
+│       │       └── triggers-config.png     # Configuração de gatilhos
+│       └── sonarqube/                      # Configuração do SonarQube
+│           ├── config-sonarqube-token-variables.png # Configuração de variáveis de token SonarQube
+│           ├── install-scanner-plugin.png  # Instalação do plugin scanner
+│           ├── sonarqube-scanner-config.png # Configuração do scanner SonarQube
+│           └── sonarqube-server-config.png # Configuração do servidor SonarQube
+├── pipelines/azure/                        # Pipelines CI/CD para Azure
+│   ├── Jenkinsfile                         # Pipeline Jenkins principal
+│   └── service-app/                        # Aplicação de exemplo
+│       ├── app.py                          # Aplicação Flask Python
+│       ├── Dockerfile                      # Imagem Docker da aplicação
+│       ├── requirements.txt                # Dependências Python
+│       ├── sonar-project.properties        # Configuração do SonarQube
+│       └── test_app.py                     # Testes unitários da aplicação
+├── terraform/azure/                        # Infraestrutura como Código (Terraform)
+│   ├── .terraform/                         # Arquivos temporários do Terraform
 │   ├── modules/                            # Módulos Terraform reutilizáveis
-│   │   ├── compute/                        # Módulo para instâncias EC2
-│   │   │   ├── ami.tf                      # Configuração de AMIs
-│   │   │   ├── iam.tf                      # Roles e políticas IAM
-│   │   │   ├── jenkins_compute.tf          # Instâncias para Jenkins
-│   │   │   ├── jenkins.sh                  # Script de inicialização Jenkins
-│   │   │   ├── locals.tf                   # Variáveis locais
-│   │   │   ├── outputs.tf                  # Outputs do módulo
-│   │   │   ├── sonarqube_compute.tf        # Instâncias para SonarQube
-│   │   │   ├── sonarqube.sh                # Script de inicialização SonarQube
+│   ├────devsecops/                          # Módulo DevSecOps
+│   │   ├── monitoring/prometheus-grafana/  # Stack de monitoramento
+│   │   │   ├── temp_build/                 # Arquivos temporários de build
+│   │   │   ├── build_monitoring_stack.tf   # Build da stack de monitoramento
+│   │   │   ├── grafana_config.tf           # Configuração do Grafana
+│   │   │   ├── grafana_dashboard_json.tf   # Dashboard JSON do Grafana
+│   │   │   ├── grafana_dashboards.tf       # Dashboards do Grafana
+│   │   │   ├── grafana_datasources.tf      # Data sources do Grafana
+│   │   │   ├── grafana_dockerfile.tf       # Dockerfile do Grafana
+│   │   │   ├── monitoring_stack_aci.tf     # Stack de monitoramento ACI
+│   │   │   ├── monitoring_stack_dockerfile.tf # Dockerfile da stack de monitoramento
+│   │   │   ├── monitoring_start_script.tf  # Script de inicialização do monitoramento
+│   │   │   ├── prometheus_alerts.tf        # Alertas do Prometheus
+│   │   │   ├── prometheus_config.tf        # Configuração do Prometheus
+│   │   │   └── variables.tf                # Variáveis
+│   │   └── pipeline/jenkins/               # Pipeline Jenkins
+│   │       ├── main.tf                     # Configuração principal
+│   │       ├── outputs.tf                  # Saídas do módulo
+│   │       └── variables.tf                # Variáveis do módulo
+│   │   ├── proxy-security/owasp-zap/       # Proxy de segurança OWASP ZAP
+│   │   │   ├── temp_build/                 # Arquivos temporários de build
+│   │   │   ├── build_zap_image.tf          # Build da imagem ZAP
+│   │   │   ├── outputs.tf                  # Saídas do módulo
+│   │   │   ├── owasp_zap_aci.tf            # OWASP ZAP ACI
+│   │   │   ├── variables.tf                # Variáveis do módulo
+│   │   │   ├── zap_dashboard_app.tf        # Aplicação de dashboard ZAP
+│   │   │   ├── zap_dashboard_template.tf   # Template de dashboard ZAP
+│   │   │   ├── zap_dockerfile.tf           # Dockerfile ZAP
+│   │   │   └── zap_report_template.tf      # Template de relatório ZAP
+│   │   ├── quality-assurance/sonarqube/    # Qualidade de código SonarQube
+│   │   │   ├── main.tf                     # Configuração principal
+│   │   │   ├── outputs.tf                  # Saídas do módulo
 │   │   │   └── variables.tf                # Variáveis do módulo
-│   │   ├── devsecops/                      # Módulo DevSecOps
-│   │   │   ├── monitoring/prometheus-grafana/  # Stack de monitoramento
-│   │   │   │   ├── temp_build/             # Arquivos temporários de build
-│   │   │   │   ├── build_monitoring_stack.tf   # Build da stack de monitoramento
-│   │   │   │   ├── grafana_config.tf       # Configuração do Grafana
-│   │   │   │   ├── grafana_dashboards.tf   # Dashboards do Grafana
-│   │   │   │   ├── grafana_datasources.tf  # Fontes de dados do Grafana
-│   │   │   │   ├── grafana_dockerfile.tf   # Dockerfile do Grafana
-│   │   │   │   ├── monitoring_stack_aci.tf # Stack de monitoramento no ACI
-│   │   │   │   ├── monitoring_stack_dockerfile.tf # Dockerfile da stack
-│   │   │   │   ├── outputs.tf              # Outputs do monitoramento
-│   │   │   │   ├── prometheus_alerts.tf    # Alertas do Prometheus
-│   │   │   │   ├── prometheus_config.tf    # Configuração do Prometheus
-│   │   │   │   └── variables.tf            # Variáveis do monitoramento
-│   │   │   ├── pipeline/jenkins/           # Pipeline Jenkins
-│   │   │   │   ├── main.tf                 # Configuração principal Jenkins
-│   │   │   │   ├── outputs.tf              # Outputs do pipeline
-│   │   │   │   └── variables.tf            # Variáveis do pipeline
-│   │   │   ├── proxy-security/owasp-zap/   # Proxy de segurança OWASP ZAP
-│   │   │   │   ├── temp_build/             # Arquivos temporários
-│   │   │   │   ├── build_zap_image.tf      # Build da imagem ZAP
-│   │   │   │   ├── outputs.tf              # Outputs do ZAP
-│   │   │   │   ├── owasp_zap_aci.tf        # ZAP no Azure Container Instances
-│   │   │   │   ├── variables.tf            # Variáveis do ZAP
-│   │   │   │   ├── zap_dashboard_app.tf    # Dashboard do ZAP
-│   │   │   │   ├── zap_dashboard_template.tf # Template do dashboard ZAP
-│   │   │   │   ├── zap_dockerfile.tf       # Dockerfile do ZAP
-│   │   │   │   └── zap_report_template.tf  # Template de relatório ZAP
-│   │   │   ├── quality-assurance/sonarqube/ # Garantia de qualidade
-│   │   │   │   ├── main.tf                 # Configuração principal SonarQube
-│   │   │   │   ├── outputs.tf              # Outputs do SonarQube
-│   │   │   │   └── variables.tf            # Variáveis do SonarQube
-│   │   │   └── security-scanner/trivy/     # Scanner de segurança Trivy
-│   │   │       ├── temp_build/             # Arquivos temporários
-│   │   │       ├── build_trivy_image.tf    # Build da imagem Trivy
-│   │   │       ├── outputs.tf              # Outputs do Trivy
-│   │   │       ├── trivy_dashboard_aci.tf  # Dashboard Trivy no ACI
-│   │   │       ├── trivy_dashboard_app.tf  # Aplicação dashboard Trivy
-│   │   │       ├── trivy_dashboard_template.tf # Template dashboard Trivy
-│   │   │       ├── trivy_dockerfile.tf     # Dockerfile do Trivy
-│   │   │       ├── trivy_report_template.tf # Template relatório Trivy
-│   │   │       └── variables.tf            # Variáveis do Trivy
-│   │   ├── ecr/                            # Elastic Container Registry
-│   │   │   ├── main.tf                     # Configuração principal ECR
-│   │   │   ├── outputs.tf                  # Outputs do ECR
-│   │   │   └── variables.tf                # Variáveis do ECR
-│   │   ├── ecs/                            # Elastic Container Service
-│   │   │   ├── main.tf                     # Configuração principal ECS
-│   │   │   ├── outputs.tf                  # Outputs do ECS
-│   │   │   └── variables.tf                # Variáveis do ECS
-│   │   ├── elastic-ip/                     # IPs Elásticos
-│   │   │   ├── main.tf                     # Configuração de IPs elásticos
-│   │   │   ├── outputs.tf                  # Outputs dos IPs
-│   │   │   └── variables.tf                # Variáveis dos IPs
-│   │   ├── network/                        # Configuração de rede
-│   │   │   ├── main.tf                     # Configuração principal da rede
-│   │   │   ├── outputs.tf                  # Outputs da rede
-│   │   │   └── variables.tf                # Variáveis da rede
-│   │   └── security/                       # Configuração de segurança
-│   │       ├── main.tf                     # Configuração principal segurança
-│   │       ├── outputs.tf                  # Outputs de segurança
-│   │       ├── providers.tf                # Provedores Terraform
-│   │       └── variables.tf                # Variáveis de segurança
-│   ├── main.tf                             # Arquivo principal Terraform
-│   ├── outputs.tf                          # Outputs principais
-│   └── variables.tf                        # Variáveis principais
+│   │   └── security-scanner/trivy/         # Scanner de segurança Trivy
+│   │       ├── temp_build/                 # Arquivos temporários de build
+│   │       ├── build_trivy_image.tf        # Build da imagem Trivy
+│   │       ├── outputs.tf                  # Saídas do módulo
+│   │       ├── trivy_dashboard_aci.tf      # Trivy Dashboard ACI
+│   │       ├── trivy_dashboard_app.tf      # Aplicação de dashboard Trivy
+│   │       ├── trivy_dashboard_template.tf # Template de dashboard Trivy
+│   │       ├── trivy_dockerfile.tf         # Dockerfile Trivy
+│   │       ├── trivy_report_template.tf    # Template de relatório Trivy
+│   │       └── variables.tf                # Variáveis do módulo
+│   │   ├── app-gateway/                    # Módulo para Application Gateway
+│   │   │   ├── main.tf                     # Configuração principal
+│   │   │   ├── outputs.tf                  # Saídas do módulo
+│   │   │   └── variables.tf                # Variáveis do módulo
+│   │   ├── compute/                        # Módulo para instâncias de computação
+│   │   │   ├── main.tf                     # Configuração principal
+│   │   │   ├── outputs.tf                  # Saídas do módulo
+│   │   │   └── variables.tf                # Variáveis do módulo
+│   │   ├── container-instances/            # Módulo para Container Instances
+│   │   │   ├── temp_build/                 # Arquivos temporários de build
+│   │   │   │   └── build_and_push_image.tf # Build e push da imagem
+│   │   │   ├── main.tf                     # Configuração principal
+│   │   │   ├── outputs.tf                  # Saídas do módulo
+│   │   │   └── variables.tf                # Variáveis do módulo
+│   │   ├── container-registry/             # Módulo para Container Registry
+│   │   │   ├── main.tf                     # Configuração principal
+│   │   │   ├── outputs.tf                  # Saídas do módulo
+│   │   │   └── variables.tf                # Variáveis do módulo
+│   │   ├── networking/                     # Módulo para rede
+│   │   │   ├── main.tf                     # Configuração principal
+│   │   │   ├── outputs.tf                  # Saídas do módulo
+│   │   │   └── variables.tf                # Variáveis do módulo
+│   │   ├── resource-group/                 # Módulo para Grupo de Recursos
+│   │   │   ├── main.tf                     # Configuração principal
+│   │   │   ├── outputs.tf                  # Saídas do módulo
+│   │   │   └── variables.tf                # Variáveis do módulo
+│   │   ├── security/                       # Módulo para segurança
+│   │   │   ├── main.tf                     # Configuração principal
+│   │   │   ├── outputs.tf                  # Saídas do módulo
+│   │   │   └── variables.tf                # Variáveis do módulo
+│   │   └── storage-account/                # Módulo para Conta de Armazenamento
+│   │       ├── main.tf                     # Configuração principal
+│   │       ├── outputs.tf                  # Saídas do módulo
+│   │       └── variables.tf                # Variáveis do módulo
+│   ├── scripts/                                # Scripts auxiliares
+│   │   ├── install-docker.sh                   # Script para instalar Docker
+│   │   ├── setup-jenkins-docker.sh             # Script para configurar Jenkins com Docker
+│   │   └── setup-sonarqube-docker.sh           # Script para configurar SonarQube com Docker
+├── ssh-keys/                               # Chaves SSH (detalhes não visíveis)
+│   ├── .terraform.lock.hcl                 # Arquivo de bloqueio do Terraform
+│   ├── main.tf                             # Configuração principal do Terraform
+│   ├── outputs.tf                          # Saídas do Terraform
+│   ├── providers.tf                        # Provedores do Terraform
+│   ├── terraform.tfstate                   # Estado do Terraform
+│   ├── terraform.tfstate.backup            # Backup do estado do Terraform
+│   ├── terraform.tfvars                    # Variáveis do Terraform
+│   └── tfplan                              # Plano de execução do Terraform
+├── .env                                    # Variáveis de ambiente
 ├── .gitignore                              # Arquivos ignorados pelo Git
-└── README.md                               # Documentação principal do projeto
+└── README.md                               # Documentação do projeto
 
 ```
 
@@ -252,7 +297,7 @@ terraform apply tfplan
 ⚙️ Configuração do Jenkins
 --------------------------
 
-<img src="/docs/images/pipeline-running.png" alt="Jenkins Pipeline">
+<img src="/docs/images/steps/jenkins/pipeline-jenkins-sonarqube.png" alt="Jenkins Pipeline inegrated with SonarQube">
 
 ### 1\. Acessar Jenkins
 
@@ -420,10 +465,8 @@ Para executar o pipeline, você pode:
 2.  Clicar em "Build Now"
 3.  Acompanhar a execução nos logs ou na visualização de estágios
 
-<img src="/docs/images/pipeline-running.png" alt="Jenkins Pipeline in platform">
-
 - Pipeline executado:
-<img src="/docs/images/jenkins-pipeline-with-sonarqube.png" alt="Jenkins Pipeline Executed with SonarQube">
+<img src="/docs/images/steps/jenkins/pipeline-jenkins-sonarqube.png" alt="Jenkins Pipeline Executed with SonarQube">
 
 🔍 Resultados da Análise de Código
 ----------------------------------
